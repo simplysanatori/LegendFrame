@@ -69,6 +69,14 @@ IDirect3DVR9 : public IUnknown {
 
   // Moves the surface into TRANSFER_SRC_OPTIMAL, the layout the compositor
   // requires on submit. Pass TRUE to also wait for the resource to be idle.
+  //
+  // FALSE is enough when LockSubmissionQueue follows before the OpenVR
+  // Submit (LegendFrame [vr] submit_wait = 0): the transition is a barrier
+  // in DXVK's command list, LockSubmissionQueue flushes that list and waits
+  // until DXVK's submit thread has handed it to vkQueueSubmit, and the
+  // compositor's copy is then queued on the same VkQueue behind it, so queue
+  // order (not the CPU) orders the copy after the frame. The next frame's
+  // writes come later on that queue again, behind the copy.
   virtual HRESULT STDMETHODCALLTYPE TransferSurface(
           IDirect3DSurface9* pSurface,
           BOOL               waitResourceIdle) = 0;
