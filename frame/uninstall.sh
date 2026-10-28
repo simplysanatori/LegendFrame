@@ -93,7 +93,7 @@ for b in "${BACKUPS[@]+"${BACKUPS[@]}"}"; do
   rmdir "$GAME/$b" 2>/dev/null || warn "left $GAME/$b (not empty)"
 done
 [ "$RESTORED" -gt 0 ] && say "Restored $RESTORED file(s) from backup."
-rm -f "$MANIFEST"
+rm -f "$MANIFEST" "$GAME/.legendframe-version"
 
 if [ "$DO_SHORTCUT" = 1 ]; then
   CFG="$SCRIPT_HOME/trlvr-config.py"

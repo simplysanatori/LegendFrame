@@ -47,23 +47,37 @@ It does these steps, in this order:
 2. **Backs up** any file it is about to replace that LegendFrame did not put there (for example an
    earlier manual install of the upstream mod) into `<game>/.legendframe-backup-<timestamp>/`.
 3. **Copies the payload** into the game folder and records every file in
-   `<game>/.legendframe-files.txt`. `openxr_loader.dll` is copied only if you pass `--with-openxr`;
-   pass it for payloads built with the mingw toolchain, whose `d3d9.dll` imports it at load time even
-   though the Frame runs through OpenVR (see [runtimes](#openvr-and-openxr)).
-4. **Seeds `trlvr.ini`** only if there is none, with Frame defaults: `fsaa=off`, `msaa=2`,
-   `comfort_vignette=off`, `cull_fov_degrees=110`. The mod fills in every other key itself on its first
-   run. An existing ini is never touched, so the keys added by LegendFrame (`stereo_mode` and the rest of
-   the [tuning table](#tuning)) are not written for you: add them under `[vr]` by hand, the game closed.
+   `<game>/.legendframe-files.txt`. The payload must contain `openvr_api.dll`; it is not built here,
+   so copy it from the upstream TRLVR release zip into the payload folder (the installer stops with that
+   message if it is missing). `openxr_loader.dll` is copied by default, because the mingw-built
+   `d3d9.dll` imports it statically and does not load without it, even though the Frame runs through
+   OpenVR (see [runtimes](#openvr-and-openxr)); `--without-openxr` leaves it out. It also writes
+   `<game>/.legendframe-version` with the first line of the payload's `VERSION` file (`unknown` if
+   there is none); `frame/install.sh --check` prints it and changes nothing.
+4. **Seeds `trlvr.ini`** with Frame defaults, adding only keys that are absent under `[vr]`. A new
+   file gets all of them; an existing one keeps every key and line it has (CRLF line endings and a BOM
+   included), gains the missing ones, and the installer prints which keys it added and which it kept.
+   The keys are `fsaa=off`, `msaa=2`, `comfort_vignette=off`, `cull_fov_degrees=110`,
+   `stereo_mode=singlepass`, `stereo_stats=0`, `vr_runtime=openvr`, `submit_wait=0`,
+   `god_carry_fix=1`, `hud_offset_x=0` and `hud_offset_y=0`. The mod fills in every other key itself on
+   its first run.
 5. **Seeds the game registry** in `compatdata/7000/pfx/user.reg`, section
    `[Software\\Crystal Dynamics\\Tomb Raider: Legend\\Graphics]`: `EnableDepthOfField`,
-   `EnableFullscreenEffects`, `EnableVSync`, `EnableShadows`, `EnableReflection` and `EnableWaterFX`
-   are set to 0, and `Fullscreen` to 0. This is done only when no Wine process is using that prefix,
-   with a copy of `user.reg` saved as `user.reg.legendframe-bak-<timestamp>` first. If the prefix or the
-   section does not exist yet, it tells you to run the game once and run the installer again.
+   `EnableFullscreenEffects`, `EnableVSync`, `EnableShadows`, `EnableReflection`, `EnableWaterFX` and
+   `Fullscreen`, as 0. Only values that are absent are added; a value that already exists (for example
+   `Fullscreen=1`) is left alone and listed. `--force-registry` overwrites existing values too. This
+   is done only when no Wine process is using that prefix, with a copy of `user.reg` saved as
+   `user.reg.legendframe-bak-<timestamp>` first. If the prefix or the section does not exist yet, it
+   tells you to run the game once and run the installer again.
 6. **Sets SteamVR per-app settings** for app 7000 (`preferredRefreshRate 72`, `resolutionOverride
-   1440`) through `/opt/steamvr/bin/linuxarm64/vrcmd`, but only when SteamVR is running. Otherwise it
-   prints how to set them by hand. With `--edit-vrsettings` and SteamVR closed, it writes them into
-   `~/.config/openvr/config/steamvr.vrsettings` instead (backup kept next to it).
+   1440`) through `/opt/steamvr/bin/linuxarm64/vrcmd`, but only when SteamVR is running, and only
+   values that are absent: it reads each one first (`vrcmd --settings-int`), keeps and prints an
+   existing value (for example a 1728 resolution override), and writes only what is missing.
+   `--vrsettings "refresh=72,res=1440"` forces those values over existing ones (either part may be
+   given alone); `--no-vrsettings` skips the step. When SteamVR is not running it prints how to set
+   them by hand. With `--edit-vrsettings` and SteamVR closed, it writes the missing values into
+   `~/.config/openvr/config/steamvr.vrsettings` instead (backup kept next to it), with the same
+   keep-what-exists rule.
 7. **Queues the shortcut.** It copies `frame/shortcut/trlvr-config.py` and `vdf.py` to
    `~/.local/share/legendframe/shortcut/` and writes a drop-in
    `~/.config/systemd/user/steam.service.d/60-legendframe.conf`, then runs
@@ -73,7 +87,8 @@ It does these steps, in this order:
    yourself** (Power > Exit Steam, then start Steam again).
 
 Options: `--userid N` (needed only if more than one Steam account has logged in on the Frame),
-`--no-registry`, `--no-vrsettings`, `--no-shortcut`, `--with-openxr`, `--edit-vrsettings`.
+`--without-openxr`, `--vrsettings "refresh=N,res=N"`, `--edit-vrsettings`, `--force-registry`,
+`--no-registry`, `--no-vrsettings`, `--no-shortcut`, `--check`.
 
 ### Launch the shortcut, not the store entry
 
@@ -198,10 +213,10 @@ matter on the Frame (section `[vr]`):
 | `first_person_object_culling`, `terrain_culling` | | `frustum` | Keep at `frustum`; `open` is slow. |
 | `ui_scale`, `hud_follow` | | `0.6`, `0.85` | HUD size and how it follows your head. |
 
-The "Frame setting" column is what the 0.1.3 test install uses. The installer itself seeds only `fsaa`,
-`msaa`, `comfort_vignette` and `cull_fov_degrees`; the LegendFrame keys (`stereo_mode`, `stereo_stats`,
-`submit_wait`, `god_carry_fix`, `hud_offset_x/y`, `vr_runtime`) are added by hand for now. Outside the ini: the per-app SteamVR resolution and refresh rate, and the game's Setup
-dialog for Shadows, Reflections and Water (the installer turns them off in the registry).
+The "Frame setting" column is what the 0.1.3 test install uses. The installer adds any of the Frame keys
+that are missing (see step 4 above) and never changes one that exists. Outside the ini: the per-app
+SteamVR resolution and refresh rate, and the game's Setup dialog for Shadows, Reflections and Water (the
+installer turns them off in the registry when those values are absent).
 
 ## Controls
 

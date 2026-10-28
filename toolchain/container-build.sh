@@ -5,6 +5,15 @@
 #   /shims   read-only toolchain/shims
 #   /fixes   optional read-only dir of *.patch files applied to the COPY (patch -p1)
 # Env: JOBS, WHAT=all|dxvk|proxy
+#
+# Headset in use: if ~/.cache/headset-in-use exists (override: HEADSET_FLAG=path), this script
+# waits for it to disappear before building, and a background watcher checks every 60 s
+# (HEADSET_POLL=seconds, for tests) while the build runs: when the file appears it SIGSTOPs every
+# process this script started (ninja, compilers, ld) and prints "paused: headset in use"; when it
+# disappears it SIGCONTs them and prints "resumed". No sudo. Inside the container the file is only
+# visible if build.sh's caller bind-mounts it and sets HEADSET_FLAG; build.sh itself already pauses
+# the whole container from the host, so by default this is a no-op there and matters when this
+# script is run directly on a machine.
 set -euo pipefail
 JOBS=${JOBS:-$(nproc)}
 WHAT=${WHAT:-all}
@@ -12,6 +21,40 @@ W=/out/work
 mkdir -p "$W" /out/dist /out/logs
 
 ts() { date +%s; }
+
+# --- pause while the headset is in use -------------------------------------------------------
+FLAG="${HEADSET_FLAG:-$HOME/.cache/headset-in-use}"
+POLL="${HEADSET_POLL:-60}"
+if [ -e "$FLAG" ]; then
+  echo "paused: headset in use ($FLAG exists); waiting before the build starts"
+  while [ -e "$FLAG" ]; do sleep "$POLL"; done
+  echo "resumed"
+fi
+MAIN=$$
+# all descendants of $1 (not $1 itself), from /proc
+descendants() {
+  grep -H '^PPid:' /proc/[0-9]*/status 2>/dev/null | awk -F'[/:[:space:]]+' -v root="$1" '
+    { par[$3] = $(NF) }
+    END { n = 1; q[1] = root
+          for (i = 1; i <= n; i++) for (p in par) if (par[p] == q[i]) { q[++n] = p; print p } }'
+}
+watcher() {
+  local paused=0 me=$BASHPID p
+  while kill -0 "$MAIN" 2>/dev/null; do
+    sleep "$POLL" || true
+    if { [ -e "$FLAG" ] && [ "$paused" = 0 ]; } || { [ ! -e "$FLAG" ] && [ "$paused" = 1 ]; }; then
+      local sig=STOP; [ "$paused" = 1 ] && sig=CONT
+      local skip=" $me $(descendants "$me" | tr '\n' ' ')"
+      for p in $(descendants "$MAIN"); do
+        case "$skip" in *" $p "*) continue ;; esac
+        kill -"$sig" "$p" 2>/dev/null || true
+      done
+      if [ "$paused" = 0 ]; then paused=1; echo "paused: headset in use"; else paused=0; echo "resumed"; fi
+    fi
+  done
+}
+watcher & WATCHER=$!; disown "$WATCHER"
+trap 'kill "$WATCHER" 2>/dev/null; for p in $(descendants "$MAIN"); do kill -CONT "$p" 2>/dev/null; done; true' EXIT
 
 if [ "$WHAT" = all ] || [ "$WHAT" = dxvk ]; then
   t0=$(ts)
