@@ -27,3 +27,14 @@ __pycache__/
 *.pyc
 .vs/
 .vscode/
+
+# LegendFrame (Steam Frame fork) build outputs
+/build-mingw/
+/release-out/
+/.cache/
+*.o
+*.dll
+*.exe
+# vendored binaries that are tracked upstream
+!third_party/openvr/bin/win32/openvr_api.dll
+!third_party/openxr/bin/win32/openxr_loader.dll
