@@ -2,6 +2,7 @@
 #include "../proxy/gpu_profile.h"
 #include "cull.h"
 #include "reflection_stereo.h"
+#include "stereo.h"
 #include "hud_capture.h"
 
 #include "vr_session.h"
@@ -1390,8 +1391,16 @@ namespace trlvr
                 g_view_prescale_fix ? "ON" : "OFF",
                 g_view_prescale_fix ? "restored" : "disabled for comparison");
         }
-        if (fkey(VK_F6) && g_gear_tuning_enabled)
-            g_gear_request = true;
+        // F6 (gear tuning) and Shift+F6 (single-pass stereo toggle, which
+        // logs itself in stereo.cpp). One edge read, as GetAsyncKeyState's
+        // low bit clears on read.
+        if (fkey(VK_F6))
+        {
+            if (shift_down)
+                stereo_set_single_pass(!stereo_single_pass_active());
+            else if (g_gear_tuning_enabled)
+                g_gear_request = true;
+        }
         if (fkey(VK_F9))
             hud_capture_start();
         // F2: first-person object culling open / headset frustum (cull.h).
