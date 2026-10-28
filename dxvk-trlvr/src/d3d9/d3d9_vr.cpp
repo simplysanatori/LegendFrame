@@ -8,12 +8,23 @@
 
 namespace dxvk {
 
-  class D3D9VR final : public ComObjectClamp<IDirect3DVR9> {
+  // One COM object, two interfaces: IDirect3DVR9 (primary, also the
+  // IUnknown identity) and IDirect3DVRStereo9 (LegendFrame single-pass
+  // stereo, d3d9_vr.h). Both share the one reference count below.
+  class D3D9VR final : public ComObjectClamp<IDirect3DVR9>, public IDirect3DVRStereo9 {
 
   public:
 
     D3D9VR(IDirect3DDevice9* pDevice)
       : m_device(static_cast<D3D9DeviceEx*>(pDevice)) {
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() {
+      return ComObjectClamp<IDirect3DVR9>::AddRef();
+    }
+
+    ULONG STDMETHODCALLTYPE Release() {
+      return ComObjectClamp<IDirect3DVR9>::Release();
     }
 
     HRESULT STDMETHODCALLTYPE QueryInterface(
@@ -26,7 +37,12 @@ namespace dxvk {
 
       if (riid == __uuidof(IUnknown)
        || riid == __uuidof(IDirect3DVR9)) {
-        *ppvObject = ref(this);
+        *ppvObject = ref(static_cast<IDirect3DVR9*>(this));
+        return S_OK;
+      }
+
+      if (riid == __uuidof(IDirect3DVRStereo9)) {
+        *ppvObject = ref(static_cast<IDirect3DVRStereo9*>(this));
         return S_OK;
       }
 
@@ -315,6 +331,44 @@ namespace dxvk {
       return D3D_OK;
     }
 
+    // --- IDirect3DVRStereo9 (contract in d3d9_vr.h) ---------------------------
+
+    HRESULT STDMETHODCALLTYPE EnableSinglePassStereo(
+            UINT                  Mode,
+            D3D9_VR_STEREO_CAPS*  pCaps) {
+      bool viewportIndex = false;
+      bool shaderSupport = false;
+
+      HRESULT hr = m_device->StereoEnable(Mode, &viewportIndex, &shaderSupport);
+
+      if (pCaps) {
+        pCaps->Version       = D3D9_VR_STEREO_INTERFACE_VERSION;
+        pCaps->ViewportIndex = viewportIndex ? TRUE : FALSE;
+        pCaps->Multiview     = FALSE;
+        pCaps->MaxBankVec4   = D3D9_VR_STEREO_BANK_VEC4;
+      }
+
+      return hr;
+    }
+
+    HRESULT STDMETHODCALLTYPE SetStereoDraw(
+      const float*                pC0Left,
+      const float*                pC0Right,
+            UINT                  EyeWidth,
+            UINT                  EyeHeight) {
+      return m_device->StereoSetDraw(pC0Left, pC0Right, EyeWidth, EyeHeight);
+    }
+
+    HRESULT STDMETHODCALLTYPE ClearStereoDraw() {
+      return m_device->StereoClearDraw();
+    }
+
+    HRESULT STDMETHODCALLTYPE GetStereoStats(
+            UINT*                 pStereoDraws,
+            UINT*                 pRejected) {
+      return m_device->StereoGetStats(pStereoDraws, pRejected);
+    }
+
   private:
 
     static VkFormat LinearFormat(VkFormat Format) {
@@ -392,6 +446,6 @@ extern "C" HRESULT __stdcall Direct3DCreateVR9(
 
   // DXVK's COM objects start with no references; hand this one out owned,
   // so the caller's QueryInterface / Release pair cannot destroy it.
-  *ppInterface = dxvk::ref(new dxvk::D3D9VR(pDevice));
+  *ppInterface = dxvk::ref(static_cast<IDirect3DVR9*>(new dxvk::D3D9VR(pDevice)));
   return D3D_OK;
 }

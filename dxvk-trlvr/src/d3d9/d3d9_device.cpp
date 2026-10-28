@@ -23,6 +23,7 @@
 #include "../util/util_math.h"
 
 #include "d3d9_initializer.h"
+#include "d3d9_vr.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -31,6 +32,66 @@
 #endif
 
 namespace dxvk {
+
+  namespace {
+
+    // LegendFrame: D3D9ShaderOptions::stereoMode is added by the shader
+    // side of the single-pass stereo work (d3d9_shader.h). Until that side
+    // is present this resolves to the fallback and single-pass stays off,
+    // so the device side builds and runs on its own.
+    template<typename T>
+    auto SetStereoShaderMode(T& Options, uint32_t Mode, int)
+      -> decltype(Options.stereoMode = uint8_t(Mode), bool()) {
+      Options.stereoMode = uint8_t(Mode);
+      return true;
+    }
+
+    template<typename T>
+    bool SetStereoShaderMode(T&, uint32_t, long) {
+      return false;
+    }
+
+    // Same for D3D9CommonShader::IsStereoCapable (false when the stereo
+    // lowering of that shader failed and it was compiled mono). Without
+    // the shader side, stereo can never be enabled, so "true" is moot.
+    template<typename S>
+    auto IsShaderStereoCapable(const S* pShader, int)
+      -> decltype(bool(pShader->IsStereoCapable())) {
+      return pShader->IsStereoCapable();
+    }
+
+    template<typename S>
+    bool IsShaderStereoCapable(const S*, long) {
+      return true;
+    }
+
+  }
+
+
+  template<typename Fn>
+  HRESULT D3D9DeviceEx::DrawStereoFallback(Fn&& Draw) {
+    // An armed draw that cannot be single-pass is drawn the way the proxy's
+    // two-pass loop draws it: once per eye, with that eye's viewport rect
+    // and that eye's c0..c3 in the API registers, then c0..c3 restored.
+    // Recursion into the draw entry point is safe: the device lock is
+    // re-entrant and fallbackEye stops a second fallback.
+    float savedC0[16];
+    std::memcpy(savedC0, &m_state.vsConsts->fConsts[0], sizeof(savedC0));
+
+    HRESULT hr = D3D_OK;
+
+    for (int32_t eye = 0; eye < 2 && SUCCEEDED(hr); eye++) {
+      m_stereo.fallbackEye = eye;
+      StereoSetApiC0(&m_stereo.bank[eye * 16]);
+      m_dirty.set(D3D9DeviceDirtyFlag::ViewportScissor);
+      hr = Draw();
+    }
+
+    m_stereo.fallbackEye = -1;
+    StereoSetApiC0(savedC0);
+    m_dirty.set(D3D9DeviceDirtyFlag::ViewportScissor);
+    return hr;
+  }
 
   D3D9DeviceEx::D3D9DeviceEx(
           D3D9InterfaceEx*       pParent,
@@ -3026,6 +3087,9 @@ namespace dxvk {
           UINT             PrimitiveCount) {
     D3D9DeviceLock lock = LockDevice();
 
+    if (unlikely(m_stereo.armed) && StereoDrawNeedsFallback())
+      return DrawStereoFallback([&] { return DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount); });
+
     if (unlikely(m_state.vertexDecl == nullptr))
       return D3DERR_INVALIDCALL;
 
@@ -3044,9 +3108,10 @@ namespace dxvk {
     PrepareDraw(PrimitiveType, !dynamicSysmemVBOs, false);
 
     // Tests on Windows show that D3D9 does not do non-indexed instanced draws.
+    // A single-pass stereo draw is one instance per eye (d3d9_vr.h).
     VkDrawIndirectCommand draw = {};
     draw.vertexCount = GetVertexCount(PrimitiveType, PrimitiveCount);
-    draw.instanceCount = 1u;
+    draw.instanceCount = unlikely(m_stereo.active) ? 2u : 1u;
     draw.firstVertex = StartVertex;
 
     // Batch draws without state changes if possible
@@ -3078,6 +3143,10 @@ namespace dxvk {
           UINT             PrimitiveCount) {
     D3D9DeviceLock lock = LockDevice();
 
+    if (unlikely(m_stereo.armed) && StereoDrawNeedsFallback())
+      return DrawStereoFallback([&] { return DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex,
+        MinVertexIndex, NumVertices, StartIndex, PrimitiveCount); });
+
     if (unlikely(m_state.vertexDecl == nullptr))
       return D3DERR_INVALIDCALL;
 
@@ -3096,7 +3165,7 @@ namespace dxvk {
 
     VkDrawIndexedIndirectCommand draw = {};
     draw.indexCount = indexCount;
-    draw.instanceCount = GetInstanceCount();
+    draw.instanceCount = unlikely(m_stereo.active) ? 2u : GetInstanceCount();
     draw.firstIndex = StartIndex;
     draw.vertexOffset = BaseVertexIndex;
 
@@ -3139,6 +3208,10 @@ namespace dxvk {
           UINT             VertexStreamZeroStride) {
     D3D9DeviceLock lock = LockDevice();
 
+    if (unlikely(m_stereo.armed) && StereoDrawNeedsFallback())
+      return DrawStereoFallback([&] { return DrawPrimitiveUP(PrimitiveType, PrimitiveCount,
+        pVertexStreamZeroData, VertexStreamZeroStride); });
+
     if (unlikely(!VertexStreamZeroStride))
       return D3DERR_INVALIDCALL;
 
@@ -3162,12 +3235,13 @@ namespace dxvk {
       cBufferSlice  = std::move(upSlice.slice),
       cPrimType     = PrimitiveType,
       cStride       = VertexStreamZeroStride,
-      cVertexCount  = vertexCount
+      cVertexCount  = vertexCount,
+      cStereo       = m_stereo.active
     ](DxvkContext* ctx) mutable {
       // Tests on Windows show that D3D9 does not do non-indexed instanced draws.
       VkDrawIndirectCommand draw = { };
       draw.vertexCount = cVertexCount;
-      draw.instanceCount = 1u;
+      draw.instanceCount = cStereo ? 2u : 1u;
 
       ctx->bindVertexBuffer(0, std::move(cBufferSlice), cStride);
       ctx->draw(1u, &draw);
@@ -3192,6 +3266,11 @@ namespace dxvk {
     const void*            pVertexStreamZeroData,
           UINT             VertexStreamZeroStride) {
     D3D9DeviceLock lock = LockDevice();
+
+    if (unlikely(m_stereo.armed) && StereoDrawNeedsFallback())
+      return DrawStereoFallback([&] { return DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex,
+        NumVertices, PrimitiveCount, pIndexData, IndexDataFormat,
+        pVertexStreamZeroData, VertexStreamZeroStride); });
 
     if (unlikely(!VertexStreamZeroStride))
       return D3DERR_INVALIDCALL;
@@ -3226,6 +3305,7 @@ namespace dxvk {
       cPrimCount    = PrimitiveCount,
       cStride       = VertexStreamZeroStride,
       cInstanceCount = GetInstanceCount(),
+      cStereo       = m_stereo.active,
       cIndexType    = DecodeIndexType(
                         static_cast<D3D9Format>(IndexDataFormat))
     ](DxvkContext* ctx) {
@@ -3233,7 +3313,7 @@ namespace dxvk {
 
       VkDrawIndexedIndirectCommand draw = { };
       draw.indexCount    = drawInfo.vertexCount;
-      draw.instanceCount = drawInfo.instanceCount;
+      draw.instanceCount = cStereo ? 2u : drawInfo.instanceCount;
 
       ctx->bindVertexBuffer(0, cBufferSlice.subSlice(0, cVertexSize), cStride);
       ctx->bindIndexBuffer(cBufferSlice.subSlice(cVertexSize, cBufferSlice.length() - cVertexSize), cIndexType);
@@ -3544,6 +3624,7 @@ namespace dxvk {
       pFunction,
       uint32_t(bytecodeLength)));
 
+    m_stereo.vsCreated++;
     return D3D_OK;
   }
 
@@ -6034,6 +6115,20 @@ namespace dxvk {
       dynamicSize = 0u;
     }
 
+    // Single-pass stereo bank (d3d9_vr.h): 8 vec4 right after the mono
+    // static constants, at 16 * (Fs + I + ceil(B / 4)). Every VS gets the
+    // room once stereo is enabled, so the bank is always inside the bound
+    // range; it is only written while armed.
+    const bool stereoBank = ShaderType == D3D9ShaderType::VertexShader
+      && unlikely(m_stereo.mode != 0u);
+    uint32_t stereoBankOffset = 0u;
+
+    if (stereoBank) {
+      stereoBankOffset = uint32_t(staticSize - dataSize.boolBufferSize)
+        + align(uint32_t(dataSize.boolBufferSize), uint32_t(sizeof(Vector4)));
+      staticSize = stereoBankOffset + D3D9_VR_STEREO_BANK_BYTES;
+    }
+
     // Set up and perform the actual data copy
     if (staticSize) {
       D3D9ConstantBufferCopyArgs copyArgs = {};
@@ -6061,6 +6156,17 @@ namespace dxvk {
       // Pad last block so we always write full cache lines
       copyArgs.boolBuffer = reinterpret_cast<char*>(staticData) + staticOffset;
       copyArgs.boolBufferSize = staticSize - staticOffset;
+
+      if (stereoBank) {
+        copyArgs.boolBufferSize = stereoBankOffset - staticOffset;
+
+        if (m_stereo.armed) {
+          std::memcpy(reinterpret_cast<char*>(staticData) + stereoBankOffset,
+            m_stereo.bank, D3D9_VR_STEREO_BANK_BYTES);
+        }
+
+        m_stereo.bankInCbv = m_stereo.armed;
+      }
 
       if (ShaderType == D3D9ShaderType::VertexShader) {
         copyArgs.constFloatApi = m_state.vsConsts->fConsts;
@@ -6684,11 +6790,14 @@ namespace dxvk {
       UpdatePushDataBlock(m_pushData.ffvs);
     if (m_dirty.test(D3D9DeviceDirtyFlag::PushDataFfps))
       UpdatePushDataBlock(m_pushData.ffps);
+    if (m_dirty.test(D3D9DeviceDirtyFlag::PushDataStereo))
+      UpdatePushDataBlock(m_pushData.stereo);
 
     m_dirty.clr(D3D9DeviceDirtyFlag::PushDataShared,
                 D3D9DeviceDirtyFlag::PushDataVs,
                 D3D9DeviceDirtyFlag::PushDataFfvs,
-                D3D9DeviceDirtyFlag::PushDataFfps);
+                D3D9DeviceDirtyFlag::PushDataFfps,
+                D3D9DeviceDirtyFlag::PushDataStereo);
   }
 
 
@@ -6833,13 +6942,10 @@ namespace dxvk {
   }
 
 
-  void D3D9DeviceEx::BindViewportAndScissor() {
-    m_dirty.clr(D3D9DeviceDirtyFlag::ViewportScissor);
-
+  DxvkViewport D3D9DeviceEx::BuildViewport(const D3DVIEWPORT9& vp) const {
     // D3D9's coordinate system has its origin in the bottom left,
     // but the viewport coordinates are aligned to the top-left
     // corner so we can get away with flipping the viewport.
-    const D3DVIEWPORT9& vp = m_state.viewport;
 
     // Correctness Factor for 1/2 texel offset
     constexpr float cf = 0.5f;
@@ -6894,11 +7000,240 @@ namespace dxvk {
         VkExtent2D { vp.Width,      vp.Height     }};
     }
 
+    return state;
+  }
+
+
+  void D3D9DeviceEx::BindViewportAndScissor() {
+    m_dirty.clr(D3D9DeviceDirtyFlag::ViewportScissor);
+
+    if (unlikely(m_stereo.active)) {
+      // Single-pass stereo: one viewport per eye rect, each built exactly
+      // like a two-pass SetViewport({eye * w, 0, w, h, MinZ, MaxZ}) would
+      // be, including the half-pixel offset and the per-eye scissor clip.
+      // Viewport index = view = InstanceIndex & 1 in the stereo VS.
+      std::array<DxvkViewport, 2u> eyes;
+
+      for (uint32_t eye = 0u; eye < 2u; eye++) {
+        D3DVIEWPORT9 vp = m_state.viewport;
+        vp.X      = eye * m_stereo.eyeWidth;
+        vp.Y      = 0u;
+        vp.Width  = m_stereo.eyeWidth;
+        vp.Height = m_stereo.eyeHeight;
+        eyes[eye] = BuildViewport(vp);
+      }
+
+      EmitCs([
+        cViewports = eyes
+      ] (DxvkContext* ctx) {
+        ctx->setViewports(2, cViewports.data());
+      });
+      return;
+    }
+
+    D3DVIEWPORT9 vp = m_state.viewport;
+
+    if (unlikely(m_stereo.fallbackEye >= 0)) {
+      // Per-eye draw of a rejected stereo draw: the two-pass eye viewport.
+      vp.X      = uint32_t(m_stereo.fallbackEye) * m_stereo.eyeWidth;
+      vp.Y      = 0u;
+      vp.Width  = m_stereo.eyeWidth;
+      vp.Height = m_stereo.eyeHeight;
+    }
+
     EmitCs([
-      cViewport = state
+      cViewport = BuildViewport(vp)
     ] (DxvkContext* ctx) {
       ctx->setViewports(1, &cViewport);
     });
+  }
+
+
+  bool D3D9DeviceEx::UpdateStereoDrawState(D3DPRIMITIVETYPE PrimitiveType) {
+    // Single-pass for this draw: armed, not a per-eye fallback draw, and
+    // not ProcessVertices (SWVP stream-out, never a stereo draw).
+    bool stereo = m_stereo.armed
+      && m_stereo.fallbackEye < 0
+      && PrimitiveType != D3DPT_FORCE_DWORD;
+
+    if (stereo != m_stereo.active) {
+      m_stereo.active = stereo;
+      m_pushData.stereo.flags = stereo ? D3D9_VR_STEREO_FLAG_ARMED : 0u;
+      m_dirty.set(D3D9DeviceDirtyFlag::ViewportScissor,
+                  D3D9DeviceDirtyFlag::PushDataStereo);
+    }
+
+    if (stereo)
+      m_stereo.stereoDraws++;
+
+    return stereo;
+  }
+
+
+  bool D3D9DeviceEx::StereoDrawNeedsFallback() {
+    // Called at the top of each draw entry point while armed. A draw that
+    // cannot be single-pass is counted as rejected and drawn per eye.
+    if (m_stereo.fallbackEye >= 0)
+      return false;
+
+    if (unlikely(!UseProgrammableVS())) {
+      // Fixed-function VS has no stereo epilogue. The proxy keeps FF
+      // scene draws on two-pass and should never get here.
+      m_stereo.rejected++;
+
+      if (!std::exchange(m_stereo.loggedFixedFunction, true))
+        Logger::warn("D3D9VR: stereo draw rejected (fixed-function) -- reported once");
+      return true;
+    }
+
+    if (unlikely(m_vbSlotTracking.instanced)) {
+      // Stream-source instancing already owns the instance index.
+      m_stereo.rejected++;
+
+      if (!std::exchange(m_stereo.loggedInstanced, true))
+        Logger::warn("D3D9VR: stereo draw rejected (instanced) -- reported once");
+      return true;
+    }
+
+    if (unlikely(!IsShaderStereoCapable(GetCommonShader(m_state.vertexShader), 0))) {
+      // Stereo lowering failed for this VS (logged by the shader side), or
+      // it was created before stereo was enabled: it ignores the bank.
+      m_stereo.rejected++;
+
+      if (!std::exchange(m_stereo.loggedMonoShader, true))
+        Logger::warn("D3D9VR: stereo draw rejected (vertex shader compiled mono) -- reported once");
+      return true;
+    }
+
+    return false;
+  }
+
+
+  void D3D9DeviceEx::StereoSetApiC0(const float* pC0) {
+    // Same effect as SetVertexShaderConstantF(0, pC0, 4), minus state
+    // block recording: these are transient per-eye values.
+    UpdateStateConstants<D3D9ShaderType::VertexShader, D3D9ConstantType::Float, float>(
+      &m_state, 0u, pC0, 4u);
+
+    auto& constSet = m_consts[uint32_t(D3D9ShaderType::VertexShader)];
+    constSet.dirty = true;
+    constSet.changedFloatCount = std::max(constSet.changedFloatCount, 4u);
+  }
+
+
+  HRESULT D3D9DeviceEx::StereoEnable(UINT Mode, bool* pViewportIndex, bool* pShaderSupport) {
+    D3D9DeviceLock lock = LockDevice();
+
+    const auto& features = m_dxvkDevice->features();
+    const bool viewportIndex = features.core.features.multiViewport
+                            && features.vk12.shaderOutputViewportIndex;
+
+    D3D9ShaderOptions probe = m_shaderOptions;
+    const bool shaderSupport = SetStereoShaderMode(probe, D3D9_VR_STEREO_MODE_VIEWPORT_INDEX, 0);
+
+    if (pViewportIndex)
+      *pViewportIndex = viewportIndex && shaderSupport && m_d3d9Options.trlvrSinglePass;
+    if (pShaderSupport)
+      *pShaderSupport = shaderSupport;
+
+    if (Mode == D3D9_VR_STEREO_MODE_QUERY)
+      return D3D_OK;
+
+    if (Mode != D3D9_VR_STEREO_MODE_VIEWPORT_INDEX)
+      return D3DERR_INVALIDCALL;
+
+    if (m_stereo.mode == Mode)
+      return D3D_OK;
+
+    if (!m_d3d9Options.trlvrSinglePass) {
+      Logger::info("D3D9VR: single-pass disabled by d3d9.trlvrSinglePass");
+      return D3DERR_NOTAVAILABLE;
+    }
+
+    if (!viewportIndex) {
+      Logger::warn(str::format("D3D9VR: single-pass unavailable: multiViewport ",
+        uint32_t(features.core.features.multiViewport), ", shaderOutputViewportIndex ",
+        uint32_t(features.vk12.shaderOutputViewportIndex)));
+      return D3DERR_NOTAVAILABLE;
+    }
+
+    if (!shaderSupport) {
+      Logger::warn("D3D9VR: single-pass unavailable: this build has no stereo shader variant");
+      return D3DERR_NOTAVAILABLE;
+    }
+
+    if (m_stereo.vsCreated) {
+      Logger::warn(str::format("D3D9VR: EnableSinglePassStereo after ",
+        m_stereo.vsCreated, " vertex shaders were created -- refused"));
+      return D3DERR_INVALIDCALL;
+    }
+
+    m_stereo.mode = Mode;
+    m_consts[uint32_t(D3D9ShaderType::VertexShader)].dirty = true;
+
+    Logger::info(str::format("D3D9VR: single-pass stereo enabled (viewport index, bank ",
+      D3D9_VR_STEREO_BANK_VEC4, " vec4, key ", D3D9_VR_STEREO_KEY_SUFFIX, ")"));
+    return D3D_OK;
+  }
+
+
+  HRESULT D3D9DeviceEx::StereoSetDraw(const float* pC0Left, const float* pC0Right, UINT EyeWidth, UINT EyeHeight) {
+    if (unlikely(!pC0Left || !pC0Right || !EyeWidth || !EyeHeight))
+      return D3DERR_INVALIDCALL;
+
+    D3D9DeviceLock lock = LockDevice();
+
+    if (unlikely(!m_stereo.mode))
+      return D3DERR_INVALIDCALL;
+
+    constexpr size_t EyeBytes = D3D9_VR_STEREO_BANK_BYTES / 2u;
+    auto* bankL = reinterpret_cast<char*>(&m_stereo.bank[0]);
+    auto* bankR = reinterpret_cast<char*>(&m_stereo.bank[16]);
+
+    // Sticky: identical matrices and size cost nothing. Bitwise compare,
+    // so a NaN-carrying matrix still counts as unchanged.
+    bool bankChanged = std::memcmp(bankL, pC0Left,  EyeBytes) != 0
+                    || std::memcmp(bankR, pC0Right, EyeBytes) != 0;
+
+    if (bankChanged) {
+      std::memcpy(bankL, pC0Left,  EyeBytes);
+      std::memcpy(bankR, pC0Right, EyeBytes);
+    }
+
+    if (bankChanged || !m_stereo.bankInCbv)
+      m_consts[uint32_t(D3D9ShaderType::VertexShader)].dirty = true;
+
+    if (EyeWidth != m_stereo.eyeWidth || EyeHeight != m_stereo.eyeHeight) {
+      m_stereo.eyeWidth  = EyeWidth;
+      m_stereo.eyeHeight = EyeHeight;
+
+      if (m_stereo.active)
+        m_dirty.set(D3D9DeviceDirtyFlag::ViewportScissor);
+    }
+
+    m_stereo.armed = true;
+    return D3D_OK;
+  }
+
+
+  HRESULT D3D9DeviceEx::StereoClearDraw() {
+    D3D9DeviceLock lock = LockDevice();
+
+    // The next PrepareDraw sees armed == false while active is still set
+    // and switches viewports and the push flag back to mono.
+    m_stereo.armed = false;
+    return D3D_OK;
+  }
+
+
+  HRESULT D3D9DeviceEx::StereoGetStats(UINT* pStereoDraws, UINT* pRejected) {
+    D3D9DeviceLock lock = LockDevice();
+
+    if (pStereoDraws)
+      *pStereoDraws = m_stereo.stereoDraws;
+    if (pRejected)
+      *pRejected = m_stereo.rejected;
+    return D3D_OK;
   }
 
 
@@ -7364,6 +7699,11 @@ namespace dxvk {
 
 
   void D3D9DeviceEx::PrepareDraw(D3DPRIMITIVETYPE PrimitiveType, bool UploadVBOs, bool UploadIBO) {
+    // Single-pass stereo: decide before viewports, constants and push
+    // data are bound. Costs one predictable branch when never armed.
+    if (unlikely(m_stereo.armed || m_stereo.active))
+      UpdateStereoDrawState(PrimitiveType);
+
     // Need to update texture masks for FFPS early so that we properly track hazards
     if (unlikely(!UseProgrammablePS()) && m_dirty.test(D3D9DeviceDirtyFlag::FFPixelShader))
       UpdateFixedFunctionPS();
@@ -7543,7 +7883,8 @@ namespace dxvk {
     if (m_dirty.any(D3D9DeviceDirtyFlag::PushDataShared,
                     D3D9DeviceDirtyFlag::PushDataVs,
                     D3D9DeviceDirtyFlag::PushDataFfvs,
-                    D3D9DeviceDirtyFlag::PushDataFfps))
+                    D3D9DeviceDirtyFlag::PushDataFfps,
+                    D3D9DeviceDirtyFlag::PushDataStereo))
       UpdatePushData();
 
     ApplyPrimitiveType(PrimitiveType);
@@ -8017,9 +8358,17 @@ namespace dxvk {
       }
     }
 
+    // Single-pass stereo variant: vertex shaders only, and only once
+    // IDirect3DVRStereo9::EnableSinglePassStereo succeeded. Pixel shader
+    // keys and options stay exactly as before.
+    D3D9ShaderOptions shaderOptions = m_shaderOptions;
+
+    if (ShaderType == D3D9ShaderType::VertexShader && unlikely(m_stereo.mode))
+      SetStereoShaderMode(shaderOptions, m_stereo.mode, 0);
+
     auto hasher = dxbc_spv::util::md5::Hasher();
     hasher.update(pShaderBytecode, bytecodeLength);
-    hasher.update(&m_shaderOptions, sizeof(m_shaderOptions));
+    hasher.update(&shaderOptions, sizeof(shaderOptions));
     auto digest = hasher.finalize();
 
     VkShaderStageFlagBits vkShaderStage = ShaderType == D3D9ShaderType::PixelShader ? VK_SHADER_STAGE_FRAGMENT_BIT : VK_SHADER_STAGE_VERTEX_BIT;
@@ -8032,7 +8381,7 @@ namespace dxvk {
     moduleInfo.irCreateInfo                   = {};
     moduleInfo.irCreateInfo.options           = m_dxvkShaderOptions;
     moduleInfo.irCreateInfo.flatShadingInputs = analysis.GetFlatShadingMask();
-    moduleInfo.shaderOptions                  = m_shaderOptions;
+    moduleInfo.shaderOptions                  = shaderOptions;
 
     HRESULT hr = m_shaderModules->GetShaderModule(this,
       key, std::move(analysis), moduleInfo, pShaderBytecode, &commonShader);
@@ -8886,11 +9235,20 @@ namespace dxvk {
     m_atocEnabled      = false;
     m_nvdbEnabled      = false;
 
+    // Single-pass stereo: Reset disarms (d3d9_vr.h). The shader variant
+    // (m_stereo.mode) and the statistics survive, like the shaders do.
+    m_stereo.armed     = false;
+    m_stereo.active    = false;
+    m_stereo.bankInCbv = false;
+    m_pushData.stereo.flags = 0u;
+    m_dirty.set(D3D9DeviceDirtyFlag::ViewportScissor);
+
     // Update all push data
     m_dirty.set(D3D9DeviceDirtyFlag::PushDataShared,
                 D3D9DeviceDirtyFlag::PushDataVs,
                 D3D9DeviceDirtyFlag::PushDataFfvs,
-                D3D9DeviceDirtyFlag::PushDataFfps);
+                D3D9DeviceDirtyFlag::PushDataFfps,
+                D3D9DeviceDirtyFlag::PushDataStereo);
   }
 
 
