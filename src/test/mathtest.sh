@@ -9,9 +9,9 @@
 #                                   separate namespaces, against stubs of the
 #                                   game state, and the dual-eye function
 #                                   compared bit for bit with single calls
-#                                   (and with the steam-frame original, when
+#                                   (and with the pre-M4 original 3104624, when
 #                                   git can provide it: REF=<rev>, default
-#                                   steam-frame; REF=none skips it).
+#                                   3104624; REF=none skips it).
 #   C0_CAPTURE=<c0_capture.bin>     also replay a capture from the game
 #                                   ([vr] vr_capture_c0 = 1) in session mode.
 #
@@ -49,7 +49,7 @@ fi
 OBJ="$OUT/session-obj"
 rm -rf "$OBJ"
 mkdir -p "$OBJ"
-REF=${REF:-steam-frame}
+REF=${REF:-3104624}   # pre-M4 steam-frame: the 1.1.0 session maths
 REF_SRC="$SRC"
 REF_NOTE="this tree (REF=none)"
 if [ "$REF" != none ]; then
