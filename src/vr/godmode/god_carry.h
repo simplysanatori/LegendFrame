@@ -27,13 +27,6 @@ namespace trlvr
                          const float toward[3], bool left_arm, bool chain_a,
                          Mat4* target);
 
-    // A game-world point in the head frame the hand script uses (OpenXR
-    // axes in metres: x right, y up, -z forward). camera: the rig's camera
-    // before the head (rows right, down, forward, position, as
-    // god_hand_grip_to_world takes it); head_view: vr_head_to_game_view;
-    // units_per_metre: world_scale * the view's factor. The exact inverse of
-    // placing a hand at that offset from the head. False if the camera does
-    // not invert.
     // How many of her instance's matrices a carried draw must move: every
     // matrix any draw of the instance can read. A draw may pass a model
     // whose own bones + blended joints (`drawn_total`) are fewer than her
@@ -56,6 +49,24 @@ namespace trlvr
     int carry_highest_vertex_segment(const unsigned char* vertices,
                                      int vertex_count);
 
+    // Which array the game's skinning (InstanceDraw, 0x00408CC0) reads a
+    // segment's matrix from. A draw with a `transform` argument (the
+    // wet/dirty overlay, FX_WetDirtyDraw) takes the model's real segments
+    // (< `num_segments`) from the instance matrices and its blended joints
+    // from the transform array, at segment - num_segments; without one,
+    // every segment comes from the instance matrices. The index into the
+    // chosen array, -1 for a negative segment; *from_transform (may be
+    // null) says which array.
+    int carry_segment_source(int segment, int num_segments, bool has_transform,
+                             bool* from_transform);
+
+    // A game-world point in the head frame the hand script uses (OpenXR
+    // axes in metres: x right, y up, -z forward). camera: the rig's camera
+    // before the head (rows right, down, forward, position, as
+    // god_hand_grip_to_world takes it); head_view: vr_head_to_game_view;
+    // units_per_metre: world_scale * the view's factor. The exact inverse of
+    // placing a hand at that offset from the head. False if the camera does
+    // not invert.
     bool world_to_head_frame(const Mat4& camera, const Mat4& head_view,
                              float units_per_metre, const float world[3],
                              float out[3]);

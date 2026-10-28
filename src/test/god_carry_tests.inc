@@ -34,6 +34,19 @@ static void test_god_carry()
         CHECK(carry_highest_vertex_segment(v, 1) == 4);
         CHECK(carry_highest_vertex_segment(nullptr, 3) == -1);
     }
+    // carry_segment_source: InstanceDraw's choice of matrix array. The
+    // wet/dirty overlay (109 real segments + 43 blended, a transform array)
+    // reads its blended joints from the transform array.
+    {
+        bool t = true;
+        CHECK(carry_segment_source(0, 109, true, &t) == 0 && !t);
+        CHECK(carry_segment_source(108, 109, true, &t) == 108 && !t);
+        CHECK(carry_segment_source(109, 109, true, &t) == 0 && t);
+        CHECK(carry_segment_source(151, 109, true, &t) == 42 && t);
+        CHECK(carry_segment_source(151, 109, false, &t) == 151 && !t);
+        CHECK(carry_segment_source(220, 109, false, nullptr) == 220);
+        CHECK(carry_segment_source(-1, 109, true, &t) == -1 && !t);
+    }
     // rotation_about_point: the pivot stays, a point at +x turns about z.
     {
         const float from[3] = { 1, 0, 0 }, to[3] = { 0, 1, 0 };
