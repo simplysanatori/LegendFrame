@@ -4,10 +4,8 @@ This guide is for the Valve Steam Frame (aarch64 SteamOS). It covers installing 
 Legend VR mod into the Steam copy of the game, what to expect from it, and how to tune it.
 
 The mod is RototRobot's [Tomb-Raider-Legend-VR-Port](https://github.com/RototRobot/Tomb-Raider-Legend-VR-Port).
-LegendFrame is the Steam Frame fork of it. This guide describes LegendFrame 0.1.x, which is upstream mod 1.1.0 plus the Frame work. Read the
-[performance](#performance-what-is-measured) section before you install: the game runs and is
-faster than upstream on the Frame, but it still does not hold the frame rate the headset can show.
-Builds are marked "in testing": see what is measured and what is still pending there.
+LegendFrame is the Steam Frame fork of it. This guide describes LegendFrame 1.0.0, which is upstream mod 1.1.0 plus the Frame work. The
+[performance](#performance-what-is-measured) section has the measurements behind it.
 
 ## Requirements
 
@@ -59,7 +57,7 @@ It does these steps, in this order:
    included), gains the missing ones, and the installer prints which keys it added and which it kept.
    The keys are `fsaa=off`, `msaa=2`, `comfort_vignette=off`, `cull_fov_degrees=110`,
    `stereo_mode=singlepass`, `stereo_stats=0`, `vr_runtime=openvr`, `submit_wait=0`,
-   `god_carry_fix=1`, `hud_offset_x=0` and `hud_offset_y=0`. The mod fills in every other key itself on
+   `god_carry_fix=1`, `hud_offset_x=-0.08` and `hud_offset_y=0.08`. The mod fills in every other key itself on
    its first run.
 5. **Seeds the game registry** in `compatdata/7000/pfx/user.reg`, section
    `[Software\\Crystal Dynamics\\Tomb Raider: Legend\\Graphics]`: `EnableDepthOfField`,
@@ -144,9 +142,8 @@ reflections and water off. The owner's own play sessions supplied the gameplay f
 | LegendFrame 0.1.1, single-pass | gameplay median about 51 fps (worst 27 to 39, best 72), frame about 19.8 ms, about 1450 draws, fallback and rejected draws 0 | measured |
 | Menu, `submit_wait=1` (GPU wait kept) | 43 to 45 fps, 23 ms frame, 9 ms at Present | measured |
 | Menu, `submit_wait=0` (no GPU wait) | 67 to 70 fps, 14.5 ms frame, 1 ms at Present | measured, menu only |
-| Gameplay with `submit_wait=0` | not yet known | pending the owner's test |
-| Tearing or partial frames with `submit_wait=0` | not yet known | pending the owner's test |
-| God-mode carry smearing with `god_carry_fix=1` | not yet known | pending the owner's test |
+| LegendFrame 1.0.0, single-pass, `submit_wait=0` | gameplay median 72 fps (the refresh cap), minimum 66, frame about 13.9 ms, fallback and rejected draws 0, no tearing | measured |
+| God-mode carries with `god_carry_fix=1` | carries before and after cutscenes and with Lara wet stay clean | measured |
 
 What this tells us:
 
@@ -168,7 +165,7 @@ What this tells us:
   about 47 percent fewer instructions per stereo draw.
 - `submit_wait=0` skips the CPU wait for the GPU before the OpenVR `Submit`. The order is still
   guaranteed by the submission-queue lock and the recorded layout barrier (the same pattern DXVK's own
-  D3D11 OpenVR interop uses), so no tearing is expected, but that is what the headset test is for. Menu
+  D3D11 OpenVR interop uses), and no tearing showed in play. Menu
   gain was large (2.4 to 3 ms per frame was the estimate; the menu A/B above is the measurement).
 - Heat matters a lot. A 0.1.2 session read a 36 fps median that was the Frame throttling (many fan-control
   temperature warnings) while another job had just run the headset hard; the same code gave 51 fps cool.
@@ -197,11 +194,11 @@ matter on the Frame (section `[vr]`):
 
 | Key | Code default | Frame setting | Notes |
 |---|---|---|---|
-| `stereo_mode` | `twopass` | `singlepass` | `singlepass` issues one draw for both eyes; `twopass` is upstream's path and the fallback. The mode can also be flipped live with **Shift+F6** or the settings-panel checkbox (not saved). |
-| `stereo_stats` | `0` | `1` | Logs a `stereo stats:` line every 5 s: single-pass and fallback draw counts and timing. Cheap. |
+| `stereo_mode` | `singlepass` | `singlepass` | `singlepass` issues one draw for both eyes; `twopass` is upstream's path and the fallback. The mode can also be flipped live with **Shift+F6** or the settings-panel checkbox (not saved). |
+| `stereo_stats` | `0` | `0` | Logs a `stereo stats:` line every 5 s: single-pass and fallback draw counts and timing. Cheap. |
 | `stereo_shared_math` | `1` | `1` | Both eyes' matrices in one call (bit-exact). `0` gives the two legacy calls, for A/B. |
-| `submit_wait` | `1` | `0` (under trial) | `0` = no CPU wait for the GPU before `Submit`. Menu gain measured; gameplay and tearing pending. Set `1` if anything looks wrong. OpenXR path is unaffected. |
-| `god_carry_fix` | `1` | `1` (under trial) | Fix for upstream god-mode carry smearing when Lara is drawn with a second model. `0` is the 1.1.0 carry, for A/B. |
+| `submit_wait` | `0` | `0` | `0` = no CPU wait for the GPU before `Submit`. `1` is the 1.1.0 behaviour (slower). OpenXR path is unaffected. |
+| `god_carry_fix` | `1` | `1` | Fix for upstream god-mode carry smearing when Lara is drawn with a second model. `0` is the 1.1.0 carry, for A/B. |
 | `hud_offset_x`, `hud_offset_y` | `0`, `0` | `-0.08`, `0.08` | Nudges the gameplay HUD only (NDC units). Also sliders in the settings panel. |
 | `vr_runtime` | `auto` | `openvr` | `openxr` does not work under Proton 11 ARM64; see [above](#openvr-and-openxr). |
 | `vr_capture_c0` | `0` | `0` | Debug: records the game's `c0` and state for the maths test. Leave off. |
@@ -213,7 +210,7 @@ matter on the Frame (section `[vr]`):
 | `first_person_object_culling`, `terrain_culling` | | `frustum` | Keep at `frustum`; `open` is slow. |
 | `ui_scale`, `hud_follow` | | `0.6`, `0.85` | HUD size and how it follows your head. |
 
-The "Frame setting" column is what the 0.1.3 test install uses. The installer adds any of the Frame keys
+The "Frame setting" column is what `frame/install.sh` seeds. The installer adds any of the Frame keys
 that are missing (see step 4 above) and never changes one that exists. Outside the ini: the per-app
 SteamVR resolution and refresh rate, and the game's Setup dialog for Shadows, Reflections and Water (the
 installer turns them off in the registry when those values are absent).
