@@ -1097,6 +1097,31 @@ namespace trlvr
                     // gameplay HUD's hud_follow drag.
                     const float follow = hud_binocular_view_active()
                         ? 1.0f : tune_hud_follow();
+                    // hud_offset_x / _y nudge only the gameplay HUD quad
+                    // (not menus, pause UI, screen wipes, the binocular
+                    // viewfinder or world markers, which returned above).
+                    // Convention: an NDC bias added after ui_scale and
+                    // before the reference is inverted, in the game's own
+                    // clip space. The game projection has sy < 0 and a
+                    // Y-down view, which together give a standard NDC
+                    // (+x right, +y up on screen), so the ini values go in
+                    // unchanged: +x moves the HUD right, +y moves it up.
+                    float hud_bias_x = 0.0f;
+                    float hud_bias_y = 0.0f;
+                    if (!screen_wipe && !ui_menu_active() &&
+                        !ui_pause_menu_active() &&
+                        !hud_binocular_view_active())
+                    {
+                        hud_bias_x = config().hud_offset_x;
+                        hud_bias_y = config().hud_offset_y;
+                        static bool offset_reported = false;
+                        if (!offset_reported)
+                        {
+                            offset_reported = true;
+                            log("ui: hud offset x=%.3f y=%.3f",
+                                hud_bias_x, hud_bias_y);
+                        }
+                    }
                     if (!screen_wipe && !ui_menu_active() && follow < 0.999f)
                     {
                         // Leave a small fraction of current head rotation in
@@ -1117,7 +1142,8 @@ namespace trlvr
                             vr_head_rotation(), 1.0f - follow);
                         ui = reproject_ndc_to_world_locked(
                             projection_from_game(ui_gp), reference,
-                            hud_projection, relative, scale);
+                            hud_projection, relative, scale,
+                            hud_bias_x, hud_bias_y);
                     }
                     else
                     {
@@ -1125,7 +1151,8 @@ namespace trlvr
                         // pause_world_locked took it to the branch above.
                         ui = reproject_ndc_to_frustum(
                             projection_from_game(ui_gp), reference,
-                            target_projection, scale);
+                            target_projection, scale,
+                            hud_bias_x, hud_bias_y);
                     }
                 }
                 registers_from_matrix(ui, out);

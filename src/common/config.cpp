@@ -183,6 +183,8 @@ namespace trlvr
             { L"vr", L"hide_gameplay_hud", L"0" },
             { L"vr", L"ui_scale", L"0.6" },
             { L"vr", L"hud_follow", L"0.85" },
+            { L"vr", L"hud_offset_x", L"0.0" },
+            { L"vr", L"hud_offset_y", L"0.0" },
             { L"vr", L"overlay_vr_distance", L"1.0" },
             { L"vr", L"overlay_vr_width_degrees", L"38" },
             { L"vr", L"overlay_vr_yaw_degrees", L"15" },
@@ -564,6 +566,10 @@ namespace trlvr
             L"ui_scale = 0.6\r\n"
             L"; 1.0 is rigidly head-locked; 0.85 gives the gameplay HUD gentle drag.\r\n"
             L"hud_follow = 0.85\r\n"
+            L"; Shift the gameplay HUD only (-0.5 to 0.5): x + = right, y + = up.\r\n"
+            L"; 0.1 moves it a twentieth of the view; menus and markers stay put.\r\n"
+            L"hud_offset_x = 0.0\r\n"
+            L"hud_offset_y = 0.0\r\n"
             L"\r\n"
             L"; The settings window (Insert) in the headset: a panel placed in front\r\n"
             L"; of you when it opens. Distance in metres (0.3 to 5), width in degrees\r\n"
@@ -1246,6 +1252,12 @@ namespace trlvr
         g_config.ui_scale = value >= 0.1f && value <= 2.0f ? value : 0.6f;
         value = read_float(L"vr", L"hud_follow", L"0.85", path);
         g_config.hud_follow = value >= 0.0f && value <= 1.0f ? value : 0.85f;
+        value = read_float(L"vr", L"hud_offset_x", L"0.0", path);
+        g_config.hud_offset_x =
+            value >= -0.5f && value <= 0.5f ? value : 0.0f;
+        value = read_float(L"vr", L"hud_offset_y", L"0.0", path);
+        g_config.hud_offset_y =
+            value >= -0.5f && value <= 0.5f ? value : 0.0f;
         {
             const auto clamped = [](float v, float low, float high,
                                     float fallback) {

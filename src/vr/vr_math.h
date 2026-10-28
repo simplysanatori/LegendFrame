@@ -155,10 +155,15 @@ namespace trlvr
     // clip-space equivalent of drawing a mono surface through each headset
     // lens: the two render images differ, but the rays seen by the eyes agree.
     // W and depth are left exactly as the source produced them.
+    // bias_x / bias_y are added to the scaled source NDC (so they move the
+    // picture by that much of the reference view, +x right, +y up for a
+    // standard NDC source) before it is read as a ray; 0 changes nothing.
     Mat4 reproject_ndc_to_frustum(const Mat4& source,
                                   const Mat4& reference_projection,
                                   const Mat4& target_projection,
-                                  float scale);
+                                  float scale,
+                                  float bias_x = 0.0f,
+                                  float bias_y = 0.0f);
 
     // As above, but reinterpret the mono UI rays in a fixed reference view,
     // rotate that view by the headset, then project it through the live eye.
@@ -167,7 +172,9 @@ namespace trlvr
                                        const Mat4& reference_projection,
                                        const Mat4& target_projection,
                                        const Mat4& head_view_rotation,
-                                       float scale);
+                                       float scale,
+                                       float bias_x = 0.0f,
+                                       float bias_y = 0.0f);
 
     // An OpenVR pose (3x4 row-major, right-handed, metres) turned into a view
     // matrix in the engine's space. Three conversions at once -- inverse,
