@@ -84,6 +84,7 @@ namespace dxvk {
     PushDataVs,
     PushDataFfvs,
     PushDataFfps,
+    PushDataStereo,
 
     SpecializationEntries,
   };
@@ -94,6 +95,31 @@ namespace dxvk {
     Ok = 0,
     Lost = 1,
     NotReset = 2,
+  };
+
+  /**
+   * \brief LegendFrame single-pass stereo state (IDirect3DVRStereo9)
+   *
+   * See the frozen contract in d3d9_vr.h. \c mode selects the stereo
+   * shader variant for vertex shaders created afterwards; \c armed is
+   * the sticky SetStereoDraw state; \c active is what the last
+   * PrepareDraw bound (2 viewports, push flag, instanceCount x2).
+   */
+  struct D3D9StereoState {
+    uint32_t mode       = 0u;     // 0 = off, 1 = viewport index
+    bool     armed      = false;
+    bool     active     = false;
+    bool     bankInCbv  = false;  // last VS static upload holds the current bank
+    uint32_t eyeWidth   = 0u;
+    uint32_t eyeHeight  = 0u;
+    float    bank[32]   = { };    // L c0..c3, R c0..c3
+    int32_t  fallbackEye = -1;    // >= 0 while drawing a rejected draw per eye
+    uint32_t vsCreated  = 0u;
+    uint32_t stereoDraws = 0u;
+    uint32_t rejected   = 0u;
+    bool     loggedInstanced = false;
+    bool     loggedFixedFunction = false;
+    bool     loggedMonoShader = false;
   };
 
   struct D3D9DrawInfo {
@@ -966,6 +992,23 @@ namespace dxvk {
 
     void BindViewportAndScissor();
 
+    DxvkViewport BuildViewport(const D3DVIEWPORT9& vp) const;
+
+    bool UpdateStereoDrawState(D3DPRIMITIVETYPE PrimitiveType);
+
+    bool StereoDrawNeedsFallback();
+
+    void StereoSetApiC0(const float* pC0);
+
+    template<typename Fn>
+    HRESULT DrawStereoFallback(Fn&& Draw);
+
+    // IDirect3DVRStereo9 back end, called by D3D9VR
+    HRESULT StereoEnable(UINT Mode, bool* pViewportIndex, bool* pShaderSupport);
+    HRESULT StereoSetDraw(const float* pC0Left, const float* pC0Right, UINT EyeWidth, UINT EyeHeight);
+    HRESULT StereoClearDraw();
+    HRESULT StereoGetStats(UINT* pStereoDraws, UINT* pRejected);
+
     inline bool IsNVDepthBoundsTestEnabled () {
       // NVDB is not supported by D3D8
       if (unlikely(m_d3dCompatibility.test(D3DCompatibility::D3D8)))
@@ -1690,6 +1733,7 @@ namespace dxvk {
     // references objects that can call back into the device when freed.
     Direct3DState9                  m_state;
     D3D9PushData                    m_pushData = {};
+    D3D9StereoState                 m_stereo;
     D3D9SpecData                    m_specData = {};
 
     D3D9VkInteropDevice             m_d3d9Interop;
