@@ -4,8 +4,10 @@ This guide is for the Valve Steam Frame (aarch64 SteamOS). It covers installing 
 Legend VR mod into the Steam copy of the game, what to expect from it, and how to tune it.
 
 The mod is RototRobot's [Tomb-Raider-Legend-VR-Port](https://github.com/RototRobot/Tomb-Raider-Legend-VR-Port).
-LegendFrame is the Steam Frame fork of it. Read the [status](#performance-what-is-measured) section
-before you install: the game runs, but it does not yet run at the frame rate the headset can show.
+LegendFrame is the Steam Frame fork of it. This guide describes LegendFrame 0.1.x, which is upstream mod 1.1.0 plus the Frame work. Read the
+[performance](#performance-what-is-measured) section before you install: the game runs and is
+faster than upstream on the Frame, but it still does not hold the frame rate the headset can show.
+Builds are marked "in testing": see what is measured and what is still pending there.
 
 ## Requirements
 
@@ -17,13 +19,16 @@ before you install: the game runs, but it does not yet run at the frame rate the
   named `proton_11-arm64`. Check it under Steam > Settings > Compatibility if the name differs.
 - A built or packaged LegendFrame: a folder containing `d3d9.dll`, `d3d9_dxvk.dll`,
   `openvr_api.dll`, `trlvr_launcher.exe`, `trlvr_actions.json` and the `bindings_*.json` files. Build
-  it with the container toolchain in `toolchain/` (see the README) or take a release package.
+  it with the container toolchain in `toolchain/` (see the README; it runs on the Frame itself) or take a
+  release package. There is no GitHub release yet. The mingw-built `d3d9.dll` links
+  `openxr_loader.dll` statically, so that file must be in the payload and be installed next to it.
 - A terminal on the Frame (SSH, or Konsole from the desktop).
 
 Why Proton and not a native build: `trl.exe` is a closed-source 32-bit x86 program. In a 32-bit
 process under Proton ARM64 every module, the game and the mod's DLLs alike, runs through the FEX
 emulator, and there is no ARM64 target for 32-bit Windows code. A native Arm64 port of this game is
-not possible. The mod can still be made cheaper to emulate, which is what the stereo rewrite is for.
+not possible. The mod can still be made cheaper to emulate, which is what the single-pass stereo
+work is for.
 
 ## What the installer does
 
@@ -42,11 +47,13 @@ It does these steps, in this order:
 2. **Backs up** any file it is about to replace that LegendFrame did not put there (for example an
    earlier manual install of the upstream mod) into `<game>/.legendframe-backup-<timestamp>/`.
 3. **Copies the payload** into the game folder and records every file in
-   `<game>/.legendframe-files.txt`. `openxr_loader.dll` is not copied unless you pass `--with-openxr`
-   (SteamVR on the Frame is used through OpenVR; the OpenXR path has not been tried under Proton).
+   `<game>/.legendframe-files.txt`. `openxr_loader.dll` is copied only if you pass `--with-openxr`;
+   pass it for payloads built with the mingw toolchain, whose `d3d9.dll` imports it at load time even
+   though the Frame runs through OpenVR (see [runtimes](#openvr-and-openxr)).
 4. **Seeds `trlvr.ini`** only if there is none, with Frame defaults: `fsaa=off`, `msaa=2`,
    `comfort_vignette=off`, `cull_fov_degrees=110`. The mod fills in every other key itself on its first
-   run. An existing ini is never touched.
+   run. An existing ini is never touched, so the keys added by LegendFrame (`stereo_mode` and the rest of
+   the [tuning table](#tuning)) are not written for you: add them under `[vr]` by hand, the game closed.
 5. **Seeds the game registry** in `compatdata/7000/pfx/user.reg`, section
    `[Software\\Crystal Dynamics\\Tomb Raider: Legend\\Graphics]`: `EnableDepthOfField`,
    `EnableFullscreenEffects`, `EnableVSync`, `EnableShadows`, `EnableReflection` and `EnableWaterFX`
@@ -111,65 +118,98 @@ before installing, so the registry section exists). In it:
 
 ## Performance: what is measured
 
-Measured on one Steam Frame with the upstream 1.0.0 mod, which is what current LegendFrame builds
-behave like:
+All numbers are from one Steam Frame at 72 Hz, 1440 px per eye, Proton 11 ARM64, OpenVR, shadows,
+reflections and water off. The owner's own play sessions supplied the gameplay figures.
 
-| Setup | Result |
-|---|---|
-| Two-pass stereo (the mod's normal mode), 1728 px per eye | gameplay median about 39 fps |
-| Same, 1440 px per eye at 72 Hz, shadows, reflections and water off | median about 40 fps, 2000 draws per frame |
-| `stereo_same_frame=0` (alternate-eye) | median 68 fps, but see below |
+| Setup | Result | Status |
+|---|---|---|
+| Upstream 1.0.0, two-pass stereo, 1728 px per eye | gameplay median about 39 fps | measured |
+| Upstream two-pass, 1440 px per eye | gameplay median about 40 fps, 2000 draws per frame | measured |
+| `stereo_same_frame=0` (alternate-eye) | median 68 fps, but unusable (doubled images) | measured |
+| LegendFrame 0.1.1, single-pass | gameplay median about 51 fps (worst 27 to 39, best 72), frame about 19.8 ms, about 1450 draws, fallback and rejected draws 0 | measured |
+| Menu, `submit_wait=1` (GPU wait kept) | 43 to 45 fps, 23 ms frame, 9 ms at Present | measured |
+| Menu, `submit_wait=0` (no GPU wait) | 67 to 70 fps, 14.5 ms frame, 1 ms at Present | measured, menu only |
+| Gameplay with `submit_wait=0` | not yet known | pending the owner's test |
+| Tearing or partial frames with `submit_wait=0` | not yet known | pending the owner's test |
+| God-mode carry smearing with `god_carry_fix=1` | not yet known | pending the owner's test |
 
 What this tells us:
 
-- The game is **not** limited by resolution: going from 1728 to 1440 changed nothing, and cutting
-  draw calls by a quarter (shadows, reflections, water off) changed the GPU time very little.
-- The GPU is mostly waiting. The CPU side is the limit. Each D3D9 draw goes through the emulated game,
-  the emulated D3D9 front end of DXVK and the Vulkan translation layers, and the mod issues every draw
-  **twice**, once per eye, into one double-wide target. About 2000 draws a frame, doubled, is more
-  submission work than the emulated CPU can do in 13.9 ms (72 Hz) or 11.1 ms (90 Hz).
-- Alternate-eye rendering (one eye per frame) confirmed this: the same scene reached 68 fps because
-  each frame submitted half the draws. It is not usable, though: it shows doubled images and is
-  nauseating. `stereo_same_frame` should stay `1`.
-- Heat matters. When the Frame was already hot from earlier work, the same scene fell to about 31 fps
-  and the fan logged high temperatures. Let the headset cool before you compare numbers.
+- The game is **not** limited by resolution or by the GPU. Going from 1728 to 1440 px changed
+  nothing, and cutting a quarter of the draws changed GPU time very little.
+- The CPU side is the limit. Each D3D9 draw goes through the emulated game, the emulated D3D9 front
+  end of DXVK and the Vulkan translation layers. Upstream issues every draw **twice**, once per eye.
+  Alternate-eye rendering (half the draws per frame) reached 68 fps and confirmed it.
+- **Single-pass stereo** is the answer to that: one D3D9 draw and one `vkCmdDraw` for both eyes. It is
+  not Vulkan multiview. The draw is issued with `instanceCount` doubled, the vertex shader epilogue sets
+  `ViewportIndex = InstanceIndex & 1`, two viewports cover the two halves of the existing double-wide
+  target, and `c0..c3` come from a left/right bank in the vertex-shader constants. The bank is what the
+  two-pass path already computed, so the images match two-pass (the headless harness checks this with
+  a maximum difference of 0). Draws it cannot take (instanced, fixed-function, per-eye textures,
+  reflection pass) fall back to two-pass per draw. Design: [DESIGN.md](DESIGN.md).
+- The proxy was first built with x87 maths (the mingw i686 default) and is now built with SSE2, which
+  matters under FEX. The per-eye matrix work is also done for both eyes in one call
+  (`stereo_shared_math`, bit-exact against two calls on 8460 synthetic and 13207 captured sets), at
+  about 47 percent fewer instructions per stereo draw.
+- `submit_wait=0` skips the CPU wait for the GPU before the OpenVR `Submit`. The order is still
+  guaranteed by the submission-queue lock and the recorded layout barrier (the same pattern DXVK's own
+  D3D11 OpenVR interop uses), so no tearing is expected, but that is what the headset test is for. Menu
+  gain was large (2.4 to 3 ms per frame was the estimate; the menu A/B above is the measurement).
+- Heat matters a lot. A 0.1.2 session read a 36 fps median that was the Frame throttling (many fan-control
+  temperature warnings) while another job had just run the headset hard; the same code gave 51 fps cool.
+  Let the headset cool before you compare numbers, and run nothing else on it while testing.
 - FEX is already configured for the game (x87 reduced precision, TSO and multiblock on) in Proton's
   `Config.json`. Do not set `FEX_SMCCHECKS=none`: the mod patches game code at run time. Turning TSO off
   is risky. Other FEX knobs (`FEX_MAXINST`, `FEX_PROFILESTATS=0`) have not been tried.
 
-**The rewrite goal:** issue each draw once and render both eyes from it, with Vulkan multiview in the
-DXVK fork (a per-view clip transform in the generated vertex shaders, one draw for both eyes), keeping
-the two-pass path as a fallback. That halves the submission work without changing the picture. This
-is in development; until it lands, expect about 40 fps in busy scenes and a SteamVR that holds the
-rest with throttling or motion smoothing.
+Next levers, not done: the remaining per-draw hook overhead (other-instance draws about 2 to 3 ms,
+terrain about 1 ms in the `perf cpu:` lines), and fewer constant-change arm calls.
+
+### OpenVR and OpenXR
+
+The Frame default is `vr_runtime=openvr`. OpenXR is **not available under Proton 11 ARM64** for this
+mod: `xrCreateInstance` returns `XR_ERROR_RUNTIME_UNAVAILABLE` (there is no 32-bit OpenXR runtime
+bridge there), and forcing `vr_runtime=openxr` leaves the game running flat. `auto` wastes several
+seconds before falling back to OpenVR. Under **Proton Experimental (ARM64)** OpenXR works (the session
+came up at 1440 per eye with the stereo stats fine), but its menu frame rate was lower (32 to 40 fps
+against 42 on Proton 11, two runs each). It is untested in gameplay; to try it, set the shortcut's
+compatibility tool to Proton Experimental and `vr_runtime=openxr`.
 
 ## Tuning
 
 Edit `trlvr.ini` in the game folder with the game closed. The file explains every key. The ones that
-matter on the Frame:
+matter on the Frame (section `[vr]`):
 
-| Key | Frame default | Notes |
-|---|---|---|
-| `stereo_same_frame` | `1` | Both eyes in one frame. `0` is alternate-eye: faster, but unusable. |
-| `fsaa` | `off` | The game's anti-aliasing is expensive. |
-| `msaa` | `2` | Used only when `fsaa` is on. |
-| `comfort_vignette` | `off` | `jumps` or `full` darken the edge of view while moving. |
-| `cull_fov_degrees` | `110` | Objects outside this angle are not drawn. Lower is cheaper but may pop. |
-| `first_person_object_culling`, `terrain_culling` | `frustum` | Keep at `frustum`; `open` is slow. |
-| `ui_scale`, `hud_follow` | `0.6`, `0.85` | HUD size and how it follows your head. |
-| `vr_runtime` | `auto` | `openvr` forces SteamVR's OpenVR path. |
+| Key | Code default | Frame setting | Notes |
+|---|---|---|---|
+| `stereo_mode` | `twopass` | `singlepass` | `singlepass` issues one draw for both eyes; `twopass` is upstream's path and the fallback. The mode can also be flipped live with **Shift+F6** or the settings-panel checkbox (not saved). |
+| `stereo_stats` | `0` | `1` | Logs a `stereo stats:` line every 5 s: single-pass and fallback draw counts and timing. Cheap. |
+| `stereo_shared_math` | `1` | `1` | Both eyes' matrices in one call (bit-exact). `0` gives the two legacy calls, for A/B. |
+| `submit_wait` | `1` | `0` (under trial) | `0` = no CPU wait for the GPU before `Submit`. Menu gain measured; gameplay and tearing pending. Set `1` if anything looks wrong. OpenXR path is unaffected. |
+| `god_carry_fix` | `1` | `1` (under trial) | Fix for upstream god-mode carry smearing when Lara is drawn with a second model. `0` is the 1.1.0 carry, for A/B. |
+| `hud_offset_x`, `hud_offset_y` | `0`, `0` | `-0.08`, `0.08` | Nudges the gameplay HUD only (NDC units). Also sliders in the settings panel. |
+| `vr_runtime` | `auto` | `openvr` | `openxr` does not work under Proton 11 ARM64; see [above](#openvr-and-openxr). |
+| `vr_capture_c0` | `0` | `0` | Debug: records the game's `c0` and state for the maths test. Leave off. |
+| `stereo_same_frame` | `1` | `1` | Both eyes in one frame. `0` is alternate-eye: faster, but unusable. |
+| `fsaa` | `off` | `off` | The game's anti-aliasing is expensive. |
+| `msaa` | `2` | `2` | Used only when `fsaa` is on. |
+| `comfort_vignette` | | `off` | `jumps` or `full` darken the edge of view while moving. |
+| `cull_fov_degrees` | | `110` | Objects outside this angle are not drawn. Lower is cheaper but may pop. |
+| `first_person_object_culling`, `terrain_culling` | | `frustum` | Keep at `frustum`; `open` is slow. |
+| `ui_scale`, `hud_follow` | | `0.6`, `0.85` | HUD size and how it follows your head. |
 
-Outside the ini: the per-app SteamVR resolution and refresh rate (the largest knobs), and the game's
-Setup dialog for Shadows, Reflections and Water (the installer turns them off in the registry).
-Resolution did not change the frame rate in testing, but may matter once the draw cost falls.
+The "Frame setting" column is what the 0.1.3 test install uses. The installer itself seeds only `fsaa`,
+`msaa`, `comfort_vignette` and `cull_fov_degrees`; the LegendFrame keys (`stereo_mode`, `stereo_stats`,
+`submit_wait`, `god_carry_fix`, `hud_offset_x/y`, `vr_runtime`) are added by hand for now. Outside the ini: the per-app SteamVR resolution and refresh rate, and the game's Setup
+dialog for Shadows, Reflections and Water (the installer turns them off in the registry).
 
 ## Controls
 
 The bindings ship as `bindings_*.json`; SteamVR remaps the Oculus Touch binding onto the Frame
 controllers. The upstream layout is in
 [`release/VR CONTROLLER BINDINGS.txt`](../release/VR%20CONTROLLER%20BINDINGS.txt). On the Frame the
-**left menu button** is the controller's `view` input mapped onto the Touch menu button: a tap is
-meant to pause and a long press to bring up the in-game menu. The left system button always opens the SteamVR dashboard and is never
+**left menu button** is the controller's own menu button, with a native Frame binding: a tap opens the
+gear menu and pauses, and holding it for about half a second opens the settings panel. The left system button always opens the SteamVR dashboard and is never
 bound. If a button does nothing, open SteamVR > Settings > Controllers > Manage Controller Bindings and
 reset the choice for Tomb Raider: Legend.
 
@@ -178,7 +218,19 @@ reset the choice for Tomb Raider: Legend.
 All are in the game folder:
 
 - `trlvr.log` (and `trlvr.log.prev`): the headset, hooks, controllers, and a `perf:` line every five seconds
-  with frame rate, GPU and CPU time, draws and throttling.
+  with frame rate, GPU and CPU time, draws and throttling. Lines specific to LegendFrame:
+  - `stereo: single-pass (viewport index) enabled, DXVK stereo interface v1`: the single-pass path is up.
+    Bad signs instead: `stereo: DXVK has no single-pass interface`, `stereo draw rejected`,
+    `stereo lowering failed`, `EnableSinglePassStereo failed` (the game then runs two-pass).
+  - `stereo: dual-eye substitution on (...)`: shared per-eye maths is on.
+  - `stereo: live toggle -> single-pass|two-pass (Shift+F6)`: you switched the mode.
+  - `stereo stats: single N, fallback N (...), mono N, arm calls N, dxvk rejected N` every 5 s with
+    `stereo_stats=1`, ending in `arm X ms/frame (N calls, M skipped), begin X ms/frame`. In gameplay
+    `single` should be 90 percent or more of the stereo draws.
+  - `submit: GPU wait before Submit off (submit_wait=0)` (or `on (submit_wait=1)`), once at start-up.
+  - `carry #N: started (god_carry_fix 1|0)` and `carry #N: ended -- ...`, one pair per god-mode carry,
+    plus lines about a second model drawn on her instance; a line ending
+    `SOME OF ITS VERTICES STAY AT THE PICK-UP SPOT` marks the smear.
 - `trlvr_launcher.log` and `trl_vr_d3d9.log`: the launcher and the DXVK side.
 - `trlvr_crash.dmp` (and `.prev`) after a crash.
 - SteamVR's `vrserver.txt` and `vrcompositor.txt` under `~/.local/share/Steam/logs/`.
