@@ -2,11 +2,10 @@
 # usage: run-trio.sh <label> <dist dir> [key=value ini overrides...]
 # Swaps the trio into the game dir, launches headless-style (DISPLAY=:1, 90 s), kills, restores.
 LABEL=$1; DIST=$(readlink -f $2); shift 2
-G="/home/steamos/.local/share/Steam/steamapps/common/Tomb Raider Legend"; ST=/home/steamos/.local/share/Steam
-B=/home/steamos/Games/LegendFrame/build-m1; L=$B/logs/$LABEL; mkdir -p $L
+G="$HOME/.local/share/Steam/steamapps/common/Tomb Raider Legend"; ST=$HOME/.local/share/Steam
+B=$HOME/Games/LegendFrame/build-m1; L=$B/logs/$LABEL; mkdir -p $L
 pgrep trl_vr && { echo "game running"; exit 1; }
 # verify shipped state
-(cd $B/shipped/1.0.0 && grep -E " (d3d9.dll|d3d9_dxvk.dll|trlvr_launcher.exe|openvr_api.dll|trl_vr.exe)$" SHA256SUMS | sed "s# # $G/#;s#  *$G/# $G/#" >/dev/null)
 for f in d3d9.dll d3d9_dxvk.dll trlvr_launcher.exe; do
   want=$(grep " $f\$" $B/shipped/1.0.0/SHA256SUMS | cut -d' ' -f1); have=$(sha256sum "$G/$f" | cut -d' ' -f1)
   [ "$want" = "$have" ] || { echo "game-dir $f is not the shipped one; abort"; exit 2; }
