@@ -374,14 +374,12 @@ namespace dxvk {
 
       static_assert(D3D9StereoPushData::Offset == 20u);
 
-      auto type = ir::Type()
-        .addStructMember(ir::ScalarType::eU32);     // Stereo flags
-
-      m_stereoPushData = m_builder.add(ir::Op::DclPushData(type, m_entryPoint,
+      // Plain scalar: a one-member struct type is not a struct type in
+      // the IR, so it must not be declared or addressed as one.
+      m_stereoPushData = m_builder.add(ir::Op::DclPushData(ir::ScalarType::eU32, m_entryPoint,
         D3D9StereoPushData::Offset, getPushDataStage(D3D9StereoPushData::Stages)));
 
-      m_builder.add(ir::Op::DebugName(m_stereoPushData, "vr"));
-      m_builder.add(ir::Op::DebugMemberName(m_stereoPushData, 0u, "stereoFlags"));
+      m_builder.add(ir::Op::DebugName(m_stereoPushData, "vrStereoFlags"));
     }
 
     bool setupStereoBuiltIns() {
@@ -435,7 +433,7 @@ namespace dxvk {
       using namespace dxbc_spv;
 
       auto flags = m_builder.addBefore(ref, ir::Op::PushDataLoad(
-        ir::ScalarType::eU32, m_stereoPushData, m_builder.makeConstant(0u)));
+        ir::ScalarType::eU32, m_stereoPushData, ir::SsaDef()));
       flags = m_builder.addBefore(ref, ir::Op::IAnd(ir::ScalarType::eU32,
         flags, m_builder.makeConstant(D3D9StereoShader::FlagArmed)));
       return m_builder.addBefore(ref, ir::Op::INe(ir::ScalarType::eBool,
@@ -1613,10 +1611,14 @@ namespace dxvk {
     if (!stereo) {
       s_stereoLoweringFailures += 1u;
 
-      Logger::warn(str::format("D3D9VR: stereo lowering failed for ", name, " -- compiled mono"));
+      // One call so that the reason line stays next to its shader
+      // when several compiler threads fail at the same time.
+      std::string msg = str::format("D3D9VR: stereo lowering failed for ", name, " -- compiled mono");
 
       if (reason && *reason)
-        Logger::warn(str::format("D3D9VR:   reason: ", reason));
+        msg += str::format("\nD3D9VR:   reason: ", reason);
+
+      Logger::warn(msg);
     }
   }
 
