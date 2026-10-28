@@ -329,6 +329,14 @@ namespace trlvr
     void vr_set_stereo_shared_math(bool shared, bool eye_cache);
     bool vr_stereo_shared_math();
     void vr_eye_cache_stats(unsigned* hits, unsigned* misses);
+    // The per-upload memos (part of the cache; each checked against
+    // everything its result is made from): world-space c0, interface
+    // registers per eye, and sky-test repeats past the learning windows.
+    struct C0MemoStats
+    {
+        unsigned wvp_hits, wvp_misses, ui_hits, ui_misses, sky_repeats;
+    };
+    void vr_c0_memo_stats(C0MemoStats* out);
 
     // [vr] vr_capture_c0 = 1 (debug): append the game's c0 and the mode
     // state the substitution reads to c0_capture.bin beside the game, one

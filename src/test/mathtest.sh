@@ -26,7 +26,7 @@ OUT=${OUT:-$ROOT/build/test-host}
 CXX=${CXX:-g++}
 MODE=${1:-base}
 mkdir -p "$OUT"
-FLAGS=(-std=gnu++17 -O2 -ffp-contract=off -fno-strict-aliasing -w
+FLAGS=(${MATHTEST_DEBUG:+-g} -std=gnu++17 -O2 -ffp-contract=off -fno-strict-aliasing -w
        -I "$HERE/host" -include "$HERE/host/host_prelude.h")
 BASE_SRCS=(vr/vr_math.cpp vr/vr_gesture.cpp
            vr/physics/body_push.cpp vr/physics/body_volumes.cpp
