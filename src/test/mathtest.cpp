@@ -65,6 +65,7 @@ struct SessionApi
     void (*set_shared)(bool shared, bool cache);                // null: ref
     void (*capture)(bool on);                                   // null: ref
     void (*cache_stats)(unsigned* hits, unsigned* misses);      // null: ref
+    void (*memo_stats)(unsigned out[5]);                        // null: ref
     void (*set_eye_views)(const float views[2][16]);
     void (*set_head_pose)(const float pose34[12], bool valid);
     void (*frame)();
@@ -263,6 +264,16 @@ namespace
     {
         trlvr::vr_eye_cache_stats(hits, misses);
     }
+    void api_memo_stats(unsigned out[5])
+    {
+        trlvr::C0MemoStats m{};
+        trlvr::vr_c0_memo_stats(&m);
+        out[0] = m.wvp_hits;
+        out[1] = m.wvp_misses;
+        out[2] = m.ui_hits;
+        out[3] = m.ui_misses;
+        out[4] = m.sky_repeats;
+    }
 #endif
     void api_set_eye_views(const float views[2][16])
     {
@@ -316,9 +327,10 @@ extern "C" const SessionApi* MT_CAT(mathtest_session_api_, MATHTEST_COPY)()
     static const SessionApi api = {
         MT_STR(MATHTEST_COPY), api_init, api_for_eye,
 #if defined(MATHTEST_REFERENCE)
-        nullptr, nullptr, nullptr, nullptr,
+        nullptr, nullptr, nullptr, nullptr, nullptr,
 #else
         api_stereo, api_set_shared, api_capture, api_cache_stats,
+        api_memo_stats,
 #endif
         api_set_eye_views, api_set_head_pose, api_frame, api_set_scene_size,
         api_set_rt_size, api_sky_hits, trlvr::mathtest_sync_config,
@@ -627,7 +639,7 @@ namespace
     struct SuiteStats
     {
         int pairs = 0, centres = 0, mismatches = 0, substituted = 0;
-        int sky_asymmetric = 0, sky_pairs = 0;
+        int sky_asymmetric = 0, sky_pairs = 0, repeats = 0;
         int per_category[CategoryCount] = {};
     } g_suite;
 
@@ -951,6 +963,34 @@ namespace
                 all_head_pose(pose, true);
             }
             const bool centre = rng_chance(0.6f);
+            // Most game draws reuse the last c0 upload (one object's
+            // pieces): repeat it, usually with the same draw state, sometimes
+            // with a change the memo has to notice.
+            static float last_c0[16];
+            static int last_category = -1;
+            static MathtestScenario last_state;
+            if (last_category >= 0 && rng_chance(0.5f))
+            {
+                if (rng_chance(0.85f))
+                {
+                    g_scn.interface = last_state.interface;
+                    g_scn.screen_wipe = last_state.screen_wipe;
+                    g_scn.world_marker = last_state.world_marker;
+                    g_scn.world_locked_hud = last_state.world_locked_hud;
+                    g_scn.gpu_hand = last_state.gpu_hand;
+                    g_scn.accurate_aim = last_state.accurate_aim;
+                }
+                if (rng_chance(0.05f))
+                {
+                    Mat4 moved = camera_view();
+                    moved.m[3][0] += 1.0f;   // the camera moves, c0 does not
+                    set_main_wc(moved);
+                }
+                ++g_suite.repeats;
+                run_draw(last_c0, last_category, centre);
+                continue;
+            }
+            set_main_wc(camera_view());
             float c0[16];
             const int pick = (int)(rng_next() % 100);
             int category = CatWvp;
@@ -1072,6 +1112,9 @@ namespace
             if (!g_scn.hmd_drives_camera && category == CatWvp)
                 category = CatHeadView;
             run_draw(c0, category, centre);
+            memcpy(last_c0, c0, sizeof(last_c0));
+            last_category = category;
+            last_state = g_scn;
         }
     }
 
@@ -1405,6 +1448,14 @@ namespace
         unsigned hits = 0, misses = 0;
         g_api[CDc]->cache_stats(&hits, &misses);
         printf("    eye matrix cache (dc): %u hits, %u misses\n", hits, misses);
+        unsigned memo[5] = {};
+        g_api[CDc]->memo_stats(memo);
+        snprintf(what, sizeof(what), "memos exercised (dc: world-space %u "
+                 "hits / %u misses, UI %u / %u, sky repeats %u; %d repeated "
+                 "uploads)", memo[0], memo[1], memo[2], memo[3], memo[4],
+                 g_suite.repeats);
+        check(memo[0] > 500 && memo[1] > 500 && memo[2] > 100 &&
+              memo[3] > 100 && memo[4] > 20, what);
 
         // Replay what the dc copy captured, then any capture from the game.
         const int before = g_suite.pairs, mismatches = g_suite.mismatches;
@@ -1429,7 +1480,7 @@ namespace
         g_rng = 0x6A09E667u;
         // Timing: one gameplay frame's worth of draws (about 1500, mostly
         // world geometry), as the perf cpu "mod matrix math" bucket sees it.
-        std::vector<BenchDraw> draws;
+        std::vector<BenchDraw> draws, distinct;
         reset_state_flags();
         g_scn.menu = g_scn.pause = g_scn.binocular = g_scn.first_person = false;
         g_scn.hmd_drives_camera = true;
@@ -1464,7 +1515,15 @@ namespace
                                          g_scn.retail[2] + 500.0f + (float)i };
                 wvp_regs(where, (float)i * 0.1f, 1.0f, gp, d.c0);
             }
-            draws.push_back(d);
+            distinct.push_back(d);
+        }
+        // As in the game (stereo stats: about 9 draws per distinct c0 pair),
+        // each upload is drawn 1..17 times in a row.
+        for (size_t i = 0; draws.size() < 1500; ++i)
+        {
+            const int run = 1 + (int)((i * 7) % 17);
+            for (int k = 0; k < run && draws.size() < 1500; ++k)
+                draws.push_back(distinct[i % distinct.size()]);
         }
         const int frames_bench = getenv("MATHTEST_BENCH_FRAMES")
                                ? atoi(getenv("MATHTEST_BENCH_FRAMES")) : 60;
