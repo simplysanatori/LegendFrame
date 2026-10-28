@@ -1,0 +1,238 @@
+{
+  "controller_type": "frame_controller",
+  "description": "Tomb Raider: Legend VR -- Steam Frame controllers (native layout)",
+  "name": "Tomb Raider: Legend VR",
+  "bindings": {
+    "/actions/trlvr": {
+      "sources": [
+        {
+          "path": "/user/hand/left/input/thumbstick",
+          "mode": "joystick",
+          "inputs": {
+            "position": {
+              "output": "/actions/trlvr/in/stick_left"
+            },
+            "click": {
+              "output": "/actions/trlvr/in/stick_click_left"
+            },
+            "touch": {
+              "output": "/actions/trlvr/in/thumb_touch_left"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/trigger",
+          "mode": "trigger",
+          "parameters": {
+            "click_activate_threshold": "0.7",
+            "click_deactivate_threshold": "0.65",
+            "touch_activate_threshold": "0.05",
+            "touch_deactivate_threshold": "0.02"
+          },
+          "inputs": {
+            "pull": {
+              "output": "/actions/trlvr/in/trigger_left"
+            },
+            "touch": {
+              "output": "/actions/trlvr/in/trigger_touch_left"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/grip",
+          "mode": "button",
+          "parameters": {
+            "click_activate_threshold": "0.7",
+            "click_deactivate_threshold": "0.65",
+            "haptic_amplitude": "0"
+          },
+          "inputs": {
+            "click": {
+              "output": "/actions/trlvr/in/squeeze_left"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/dpad_down",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/trlvr/in/primary_left"
+            },
+            "touch": {
+              "output": "/actions/trlvr/in/thumb_touch_left"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/dpad_left",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/trlvr/in/secondary_left"
+            },
+            "touch": {
+              "output": "/actions/trlvr/in/thumb_touch_left"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/dpad_right",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/trlvr/in/secondary_left"
+            },
+            "touch": {
+              "output": "/actions/trlvr/in/thumb_touch_left"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/dpad_up",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/trlvr/in/secondary_left"
+            },
+            "touch": {
+              "output": "/actions/trlvr/in/thumb_touch_left"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/view",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/trlvr/in/menu_left"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/thumbstick",
+          "mode": "joystick",
+          "inputs": {
+            "position": {
+              "output": "/actions/trlvr/in/stick_right"
+            },
+            "click": {
+              "output": "/actions/trlvr/in/stick_click_right"
+            },
+            "touch": {
+              "output": "/actions/trlvr/in/thumb_touch_right"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/trigger",
+          "mode": "trigger",
+          "parameters": {
+            "click_activate_threshold": "0.7",
+            "click_deactivate_threshold": "0.65",
+            "touch_activate_threshold": "0.05",
+            "touch_deactivate_threshold": "0.02"
+          },
+          "inputs": {
+            "pull": {
+              "output": "/actions/trlvr/in/trigger_right"
+            },
+            "touch": {
+              "output": "/actions/trlvr/in/trigger_touch_right"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/grip",
+          "mode": "button",
+          "parameters": {
+            "click_activate_threshold": "0.7",
+            "click_deactivate_threshold": "0.65",
+            "haptic_amplitude": "0"
+          },
+          "inputs": {
+            "click": {
+              "output": "/actions/trlvr/in/squeeze_right"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/a",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/trlvr/in/primary_right"
+            },
+            "touch": {
+              "output": "/actions/trlvr/in/thumb_touch_right"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/b",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/trlvr/in/secondary_right"
+            },
+            "touch": {
+              "output": "/actions/trlvr/in/thumb_touch_right"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/x",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/trlvr/in/secondary_right"
+            },
+            "touch": {
+              "output": "/actions/trlvr/in/thumb_touch_right"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/y",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/trlvr/in/secondary_right"
+            },
+            "touch": {
+              "output": "/actions/trlvr/in/thumb_touch_right"
+            }
+          }
+        }
+      ],
+      "poses": [
+        {
+          "output": "/actions/trlvr/in/hand_left",
+          "path": "/user/hand/left/pose/handgrip"
+        },
+        {
+          "output": "/actions/trlvr/in/hand_xr_left",
+          "path": "/user/hand/left/pose/openxr_grip"
+        },
+        {
+          "output": "/actions/trlvr/in/hand_right",
+          "path": "/user/hand/right/pose/handgrip"
+        },
+        {
+          "output": "/actions/trlvr/in/hand_xr_right",
+          "path": "/user/hand/right/pose/openxr_grip"
+        }
+      ],
+      "haptics": [
+        {
+          "output": "/actions/trlvr/out/haptic_left",
+          "path": "/user/hand/left/output/haptic"
+        },
+        {
+          "output": "/actions/trlvr/out/haptic_right",
+          "path": "/user/hand/right/output/haptic"
+        }
+      ]
+    }
+  }
+}
