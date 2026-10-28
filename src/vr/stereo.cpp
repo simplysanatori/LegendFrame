@@ -58,6 +58,13 @@ namespace trlvr
         bool g_patched_c0 = false;
         bool g_announced = false;
 
+        // Two-pass with [vr] stereo_shared_math = 1: pass 0 makes both eyes'
+        // c0 in one vr_substitute_c0_stereo call and pass 1 uses the right
+        // eye's from here (nothing between the passes changes the inputs).
+        bool g_pass_right_pending = false;
+        bool g_pass_right_ok = false;
+        float g_pass_right[16]{};
+
         // Single-pass stereo (SPS-VI). DXVK's interface, held from
         // CreateDevice until the device goes; null when single-pass was not
         // asked for or DXVK cannot do it.
@@ -181,6 +188,26 @@ namespace trlvr
 
         const Eye eye = (pass == 0) ? EyeLeft : EyeRight;
         float regs[16];
+        if (vr_stereo_shared_math() && (pass == 0 || g_pass_right_pending))
+        {
+            // M4: both eyes at once, bit-identical to the two single calls
+            // (and their side effects, left then right).
+            if (pass == 0)
+            {
+                perf_cpu_begin(PerfDrawMath);
+                g_pass_right_ok = vr_substitute_c0_stereo(vr_game_c0(), regs,
+                                                          g_pass_right);
+                perf_cpu_end(PerfDrawMath);
+                g_pass_right_pending = true;
+                set_pass_c0(device, g_pass_right_ok, regs);
+            }
+            else
+            {
+                g_pass_right_pending = false;
+                set_pass_c0(device, g_pass_right_ok, g_pass_right);
+            }
+            return;
+        }
         perf_cpu_begin(PerfDrawMath);
         const bool substituted =
             vr_substitute_c0_for_eye(vr_game_c0(), regs, eye);
@@ -201,6 +228,7 @@ namespace trlvr
             g_patched_c0 = false;
             g_c0_is_uploaded = true;
         }
+        g_pass_right_pending = false;
 
         if (g_saved_viewport)
         {
@@ -364,12 +392,27 @@ namespace trlvr
         // substitution has per-call side effects (the sky-pinning learner
         // counts calls, the binocular zoom EMA steps per call).
         const float* game = vr_game_c0();
-        for (int e = 0; e < 2; ++e)
+        if (vr_stereo_shared_math())
         {
+            // M4: one call for both eyes, bit-identical to the two below.
+            // It never fails for one eye only, and on failure writes
+            // neither output (the carry-over below fills both).
             perf_cpu_begin(PerfDrawMath);
-            draw->substituted[e] = vr_substitute_c0_for_eye(
-                game, draw->c0[e], e == 0 ? EyeLeft : EyeRight);
+            const bool ok = vr_substitute_c0_stereo(game, draw->c0[0],
+                                                    draw->c0[1]);
             perf_cpu_end(PerfDrawMath);
+            draw->substituted[0] = ok;
+            draw->substituted[1] = ok;
+        }
+        else
+        {
+            for (int e = 0; e < 2; ++e)
+            {
+                perf_cpu_begin(PerfDrawMath);
+                draw->substituted[e] = vr_substitute_c0_for_eye(
+                    game, draw->c0[e], e == 0 ? EyeLeft : EyeRight);
+                perf_cpu_end(PerfDrawMath);
+            }
         }
 
         // The two passes only upload on success, so a failed eye draws with

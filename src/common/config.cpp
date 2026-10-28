@@ -52,6 +52,8 @@ namespace trlvr
             { L"vr", L"stereo_lock_pose", L"1" },
             { L"vr", L"stereo_mode", L"twopass" },
             { L"vr", L"stereo_stats", L"0" },
+            { L"vr", L"stereo_shared_math", L"1" },
+            { L"vr", L"vr_capture_c0", L"0" },
             { L"vr", L"head_tracking", L"1" },
             { L"vr", L"head_rotation", L"1" },
             { L"vr", L"head_position", L"1" },
@@ -281,6 +283,12 @@ namespace trlvr
             L"stereo_mode = twopass\r\n"
             L"; 1 logs single-pass / two-pass draw counts every 5 seconds.\r\n"
             L"stereo_stats = 0\r\n"
+            L"; 1 makes both eyes' matrices in one go (same result, less CPU);\r\n"
+            L"; 0 is the older per-eye path, for comparison.\r\n"
+            L"stereo_shared_math = 1\r\n"
+            L"; Debug: 1 records the game's camera uploads to c0_capture.bin beside\r\n"
+            L"; the game (for the maths test). Leave at 0.\r\n"
+            L"vr_capture_c0 = 0\r\n"
             L"\r\n"
             L"head_tracking = 1\r\n"
             L"head_rotation = 1\r\n"
@@ -921,6 +929,9 @@ namespace trlvr
             g_config.stereo_mode = _wcsicmp(text, L"singlepass") == 0 ? 1 : 0;
         }
         g_config.stereo_stats = read_bool(L"vr", L"stereo_stats", false, path);
+        g_config.stereo_shared_math =
+            read_bool(L"vr", L"stereo_shared_math", true, path);
+        g_config.vr_capture_c0 = read_bool(L"vr", L"vr_capture_c0", false, path);
         g_config.head_tracking = read_bool(L"vr", L"head_tracking", true, path);
         g_config.head_rotation = read_bool(L"vr", L"head_rotation", true, path);
         g_config.head_position = read_bool(L"vr", L"head_position", true, path);

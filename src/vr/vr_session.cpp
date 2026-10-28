@@ -1042,16 +1042,10 @@ namespace trlvr
         }
     }
 
-    // [vr] stereo_shared_math and [vr] vr_capture_c0, read straight from
-    // trlvr.ini (config.cpp has no generic accessor and belongs to another
-    // lane; if a Config field is added later, read it here instead).
+    // [vr] stereo_shared_math and [vr] vr_capture_c0 (config.cpp).
     static void read_shared_math_settings()
     {
-        wchar_t ini[MAX_PATH] = {};
-        wcsncpy(ini, exe_dir(), MAX_PATH - 16);
-        wcscat(ini, L"trlvr.ini");
-        g_shared_math =
-            GetPrivateProfileIntW(L"vr", L"stereo_shared_math", 1, ini) != 0;
+        g_shared_math = config().stereo_shared_math;
         g_eye_cache_on = g_shared_math;
         eye_cache_clear();
         if (g_shared_math)
@@ -1060,7 +1054,7 @@ namespace trlvr
         else
             log("stereo: dual-eye substitution off ([vr] stereo_shared_math "
                 "= 0): legacy per-eye calls, no eye matrix cache");
-        if (GetPrivateProfileIntW(L"vr", L"vr_capture_c0", 0, ini) != 0)
+        if (config().vr_capture_c0)
             vr_c0_capture_enable(true);
     }
 
