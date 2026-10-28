@@ -1050,7 +1050,7 @@ namespace trlvr
         eye_cache_clear();
         if (g_shared_math)
             log("stereo: dual-eye substitution on (shared prefix, eye matrix "
-                "cache, zoom EMA per call as before: bit-exact)");
+                "cache, zoom EMA per call: bit-exact)");
         else
             log("stereo: dual-eye substitution off ([vr] stereo_shared_math "
                 "= 0): legacy per-eye calls, no eye matrix cache");

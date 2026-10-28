@@ -123,6 +123,8 @@ namespace trlvr
     void mathtest_sync_config()
     {
         Config& c = g_mathtest_config;
+        c.stereo_shared_math = g_scn.shared_math_ini != 0;
+        c.vr_capture_c0 = g_scn.capture_ini != 0;
         c.head_tracking = g_scn.head_tracking;
         c.hmd_drives_camera = g_scn.hmd_drives_camera;
         c.hmd_drives_position = g_scn.hmd_drives_position;
@@ -1271,12 +1273,29 @@ namespace
         mbstowcs(wide_dir, out_dir ? out_dir : "/tmp/", 500);
         g_scn.exe_dir = wide_dir;
 
+        // Each copy reads [vr] stereo_shared_math in vr_init (via config):
+        // s and lg start on the legacy path, the others on shared maths.
         bool inited = true;
-        for (const SessionApi* a : g_api)
+        bool legacy_logged = true;
+        for (int c = 0; c < CopyCount; ++c)
         {
+            const SessionApi* a = g_api[c];
+            const bool legacy = c == CS || c == CLg;
+            g_scn.shared_math_ini = legacy ? 0 : 1;
             a->sync();
             inited = a->init() && inited;
+            if (c != CRef)
+            {
+                bool off = false;
+                for (const std::string& line : *a->log)
+                    off = off || line.rfind(
+                        "stereo: dual-eye substitution off", 0) == 0;
+                legacy_logged = legacy_logged && off == legacy;
+            }
         }
+        g_scn.shared_math_ini = 1;
+        check(legacy_logged, "vr_init reads stereo_shared_math from config "
+                             "(s and lg legacy, sc/dn/dc shared)");
         check(inited, "all session copies initialise (stub runtime)");
         g_api[CS]->set_shared(false, false);
         g_api[CSc]->set_shared(true, true);
