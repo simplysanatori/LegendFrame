@@ -39,15 +39,17 @@ namespace trlvr
     // hotkey and the settings panel, tune.cpp / overlay.cpp). It logs
     // "stereo: live toggle -> single-pass|two-pass (Shift+F6)" itself.
     // Turning it on only takes if DXVK enabled single-pass at CreateDevice
-    // ([vr] stereo_mode = singlepass at start); otherwise it stays two-pass
-    // and says so in the log.
+    // (done whenever stereo_same_frame = 1 and our DXVK is present, whatever
+    // stereo_mode says); otherwise it stays two-pass and says so in the log.
     void stereo_set_single_pass(bool on);
     // Scene draws are currently going out single-pass where eligible.
     bool stereo_single_pass_active();
 
     // CreateDevice, with the real (DXVK) device, before the game has created
-    // any shader: with [vr] stereo_mode = singlepass, asks DXVK for its
-    // IDirect3DVRStereo9 and enables single-pass. Logs the outcome.
+    // any shader: with same-frame stereo, asks DXVK for its
+    // IDirect3DVRStereo9 and enables single-pass (so the live toggle works
+    // from either start); [vr] stereo_mode picks the starting path. Logs
+    // the outcome.
     void stereo_device_created(IDirect3DDevice9* real_device);
     // The real device is about to be released.
     void stereo_device_closing(IDirect3DDevice9* real_device);

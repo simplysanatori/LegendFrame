@@ -219,14 +219,16 @@ namespace trlvr
 
     void stereo_device_created(IDirect3DDevice9* real_device)
     {
-        if (!real_device || config().stereo_mode != 1)
-            return;
-        if (!vr_ready())
+        // Enabled whatever stereo_mode says, so every vertex shader gets the
+        // stereo variant and Shift+F6 can switch either way; stereo_mode
+        // only picks the path the game starts on.
+        if (!real_device || !vr_ready())
             return;
         if (!config().stereo_same_frame)
         {
-            log("stereo: stereo_mode = singlepass ignored -- "
-                "stereo_same_frame = 0 (alternate eyes)");
+            if (config().stereo_mode == 1)
+                log("stereo: stereo_mode = singlepass ignored -- "
+                    "stereo_same_frame = 0 (alternate eyes)");
             return;
         }
         stereo_device_closing(g_sps_device);
@@ -279,11 +281,13 @@ namespace trlvr
 
         g_sps = sps;
         g_sps_device = real_device;
-        g_sps_on = true;
+        g_sps_on = config().stereo_mode == 1;
         g_armed = false;
         g_c0_is_uploaded = false;
         log("stereo: single-pass (viewport index) enabled, DXVK stereo "
             "interface v%u", (unsigned)caps.Version);
+        log(g_sps_on ? "stereo: starting in single-pass (stereo_mode=singlepass)"
+                     : "stereo: starting in two-pass (stereo_mode=twopass)");
     }
 
     void stereo_device_closing(IDirect3DDevice9* real_device)
@@ -313,8 +317,8 @@ namespace trlvr
         {
             g_sps_on = false;
             log("stereo: live toggle -> two-pass (Shift+F6) -- single-pass "
-                "is not available: it needs [vr] stereo_mode = singlepass at "
-                "start and the d3d9_dxvk.dll built with this d3d9.dll");
+                "is not available: it needs stereo_same_frame = 1 at start and "
+                "the d3d9_dxvk.dll built with this d3d9.dll");
             return;
         }
         g_sps_on = on;
