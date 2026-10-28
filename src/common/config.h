@@ -226,6 +226,16 @@ namespace trlvr
         bool god_arm_lead = true;
         bool god_hang_arm = false;
         bool god_arms_limp = false;
+        // god_carry_fix (default 1): the LegendFrame carry fixes -- every
+        // matrix any draw of her instance reads is carried (the larger of
+        // the drawn model's and her own model's bones + blended joints), a
+        // stack of saves so nested draws (gear) are carried too and a draw
+        // nested in a carried one is not carried twice, kept soft-part and
+        // wall-touch writes from an earlier frame put back before the
+        // snapshot, and the controller-hand copies drawn on the carried
+        // pose. 0 = TRLVR 1.1.0's carry, for A/B. The carry diagnostics are
+        // logged either way.
+        bool god_carry_fix = true;
         bool god_throw = true;
         float god_throw_strength = 1.0f;
         float god_throw_gravity = 9.81f;
