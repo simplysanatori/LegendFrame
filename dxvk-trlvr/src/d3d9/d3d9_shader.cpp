@@ -20,19 +20,38 @@ namespace dxvk {
       const D3D9ShaderAnalysis&     analysis)
     : m_builder(builder), m_options(options), m_analysis(analysis) { }
 
-    void run() {
+    /**
+     * \brief Runs the pass
+     *
+     * \returns \c false only if the stereo variant was requested and could
+     *    not be lowered; \c getStereoError then names the reason and the
+     *    builder contents must be discarded. Mono always returns \c true.
+     */
+    bool run() {
       using namespace dxbc_spv;
 
       std::tie(m_entryPoint, m_shaderStage) = findEntryPoint();
       dxbc_spv_assert(m_entryPoint);
+
+      m_stereo = m_options.stereoMode == D3D9StereoShader::ModeViewportIndex
+        && m_shaderStage == ir::ShaderStage::eVertex;
+
+      if (m_stereo && !checkStereoPreconditions())
+        return false;
 
       setupSharedPushData();
 
       if (m_shaderStage == ir::ShaderStage::eVertex)
         setupVsPushData();
 
+      if (m_stereo)
+        setupStereoPushData();
+
       setupStaticCbv();
       setupDynamicCbv();
+
+      if (m_stereo && !setupStereoBuiltIns())
+        return false;
 
       dxvk::small_vector<ir::SsaDef, 32u> inputs;
 
@@ -70,6 +89,12 @@ namespace dxvk {
             break;
         }
       }
+
+      return m_stereoError.empty();
+    }
+
+    const std::string& getStereoError() const {
+      return m_stereoError;
     }
 
   private:
@@ -110,6 +135,15 @@ namespace dxvk {
 
     dxbc_spv::ir::SsaDef      m_sharedPushData = {};
     dxbc_spv::ir::SsaDef      m_vsPushData = {};
+
+    // Single-pass stereo (LegendFrame SPS-VI). All of this stays
+    // unused unless m_stereo is set, so mono output is unchanged.
+    bool                      m_stereo = false;
+    std::string               m_stereoError;
+    dxbc_spv::ir::SsaDef      m_stereoPushData = {};
+    dxbc_spv::ir::SsaDef      m_instanceIdInput = {};
+    dxbc_spv::ir::SsaDef      m_viewportIndexOutput = {};
+    uint32_t                  m_stereoBankIndex = 0u;
 
     std::array<dxbc_spv::ir::SsaDef, DxvkLimits::MaxNumSpecConstants> m_specConstants = { };
     small_vector<SpecFunction, 32u>                                   m_specFunctions;
@@ -263,6 +297,230 @@ namespace dxvk {
       m_builder.add(ir::Op::DebugMemberName(m_vsPushData, 3u, "pointSizeMax"));
     }
 
+    bool failStereo(const char* reason) {
+      if (m_stereoError.empty())
+        m_stereoError = reason;
+      return false;
+    }
+
+    bool checkStereoPreconditions() {
+      using namespace dxbc_spv;
+
+      // Main function must be a plain function definition
+      auto mainFunc = m_builder.getOpForOperand(m_entryPoint, 0u);
+
+      if (mainFunc.getOpCode() != ir::OpCode::eFunction)
+        return failStereo("entry point has no function");
+
+      // SM3 has no viewport index output, but never write it twice
+      for (auto iter = m_builder.getDeclarations().first;
+                iter != m_builder.getDeclarations().second; iter++) {
+        if (iter->getOpCode() == ir::OpCode::eDclOutputBuiltIn
+         && ir::BuiltIn(iter->getOperand(iter->getFirstLiteralOperandIndex())) == ir::BuiltIn::eViewportIndex)
+          return failStereo("shader already writes ViewportIndex");
+      }
+
+      // Every use of the float constant input must be a load we know how to
+      // rewrite, or debug info. Anything else is IR we do not understand.
+      auto floatDecl = findDeclarationForBuiltIn(ir::BuiltIn::eLegacyConstFloat);
+
+      if (floatDecl) {
+        auto [a, b] = m_builder.getUses(floatDecl);
+
+        for (auto iter = a; iter != b; iter++) {
+          switch (iter->getOpCode()) {
+            case ir::OpCode::eInputLoad: {
+              const auto& addressOp = m_builder.getOpForOperand(*iter, 1u);
+
+              if (!addressOp || !addressOp.getType().getBaseType(0u).isIntType())
+                return failStereo("unexpected c# address");
+
+              auto valueType = iter->getType();
+
+              if (!valueType.isBasicType() || valueType.getBaseType(0u).getBaseType() != ir::ScalarType::eF32)
+                return failStereo("unexpected c# load type");
+            } break;
+
+            case ir::OpCode::eDebugName:
+            case ir::OpCode::eDebugMemberName:
+              break;
+
+            default:
+              return failStereo("unexpected use of c# input");
+          }
+        }
+      }
+
+      // The appended bank must fit the static constant buffer
+      const auto& layoutB = m_analysis.GetConstantLayout()->getLayout(D3D9ConstantType::Bool);
+      const auto& layoutI = m_analysis.GetConstantLayout()->getLayout(D3D9ConstantType::Int);
+      const auto& layoutF = m_analysis.GetConstantLayout()->getLayout(D3D9ConstantType::Float);
+
+      uint32_t vec4Count = layoutI.computeConstantCount(0u)
+        + align(layoutB.computeConstantCount(0u), 4u) / 4u
+        + D3D9StereoShader::BankVec4Count;
+
+      if (!layoutF.isDynamicallyIndexed())
+        vec4Count += layoutF.computeConstantCount(0u);
+
+      if (vec4Count * 16u > DxvkLimits::MaxUniformBufferSize)
+        return failStereo("static constant buffer too large for the bank");
+
+      return true;
+    }
+
+    void setupStereoPushData() {
+      using namespace dxbc_spv;
+
+      static_assert(D3D9StereoPushData::Offset == 20u);
+
+      auto type = ir::Type()
+        .addStructMember(ir::ScalarType::eU32);     // Stereo flags
+
+      m_stereoPushData = m_builder.add(ir::Op::DclPushData(type, m_entryPoint,
+        D3D9StereoPushData::Offset, getPushDataStage(D3D9StereoPushData::Stages)));
+
+      m_builder.add(ir::Op::DebugName(m_stereoPushData, "vr"));
+      m_builder.add(ir::Op::DebugMemberName(m_stereoPushData, 0u, "stereoFlags"));
+    }
+
+    bool setupStereoBuiltIns() {
+      using namespace dxbc_spv;
+
+      // Instance index, as InstanceIndex - BaseInstance. The device draws
+      // stereo with instanceCount 2, so bit 0 is the view.
+      m_instanceIdInput = findDeclarationForBuiltIn(ir::BuiltIn::eInstanceId);
+
+      if (!m_instanceIdInput) {
+        m_instanceIdInput = m_builder.add(ir::Op::DclInputBuiltIn(
+          ir::ScalarType::eU32, m_entryPoint, ir::BuiltIn::eInstanceId));
+        m_builder.add(ir::Op::DebugName(m_instanceIdInput, "vrInstanceId"));
+      }
+
+      if (m_builder.getOp(m_instanceIdInput).getType() != ir::Type(ir::ScalarType::eU32))
+        return failStereo("unexpected InstanceId declaration");
+
+      m_viewportIndexOutput = m_builder.add(ir::Op::DclOutputBuiltIn(
+        ir::ScalarType::eU32, m_entryPoint, ir::BuiltIn::eViewportIndex));
+      m_builder.add(ir::Op::DebugName(m_viewportIndexOutput, "vrViewportIndex"));
+
+      // Prologue: ViewportIndex = armed ? (InstanceId & 1) : 0. Emitted at
+      // the very start of the entry point so that it is written on every
+      // path, including early returns from the SM3 main body.
+      auto mainFunc = m_builder.getOpForOperand(m_entryPoint, 0u).getDef();
+      auto ref = m_builder.getNext(mainFunc);
+
+      while (ref) {
+        auto opCode = m_builder.getOp(ref).getOpCode();
+
+        if (opCode != ir::OpCode::eLabel)
+          break;
+
+        ref = m_builder.getNext(ref);
+      }
+
+      if (!ref || m_builder.getOp(ref).getOpCode() == ir::OpCode::eFunction)
+        return failStereo("entry point has no body");
+
+      auto armed = emitStereoArmed(ref);
+      auto view = emitStereoView(ref);
+
+      auto viewportIndex = m_builder.addBefore(ref, ir::Op::Select(ir::ScalarType::eU32,
+        armed, view, m_builder.makeConstant(0u)));
+      m_builder.addBefore(ref, ir::Op::OutputStore(m_viewportIndexOutput, ir::SsaDef(), viewportIndex));
+      return true;
+    }
+
+    dxbc_spv::ir::SsaDef emitStereoArmed(dxbc_spv::ir::SsaDef ref) {
+      using namespace dxbc_spv;
+
+      auto flags = m_builder.addBefore(ref, ir::Op::PushDataLoad(
+        ir::ScalarType::eU32, m_stereoPushData, m_builder.makeConstant(0u)));
+      flags = m_builder.addBefore(ref, ir::Op::IAnd(ir::ScalarType::eU32,
+        flags, m_builder.makeConstant(D3D9StereoShader::FlagArmed)));
+      return m_builder.addBefore(ref, ir::Op::INe(ir::ScalarType::eBool,
+        flags, m_builder.makeConstant(0u)));
+    }
+
+    dxbc_spv::ir::SsaDef emitStereoView(dxbc_spv::ir::SsaDef ref) {
+      using namespace dxbc_spv;
+
+      // Recomputed at each use rather than cached in a variable, since
+      // uses may sit in SM3 subroutines, i.e. different IR functions.
+      auto instanceId = m_builder.addBefore(ref, ir::Op::InputLoad(
+        ir::ScalarType::eU32, m_instanceIdInput, ir::SsaDef()));
+      return m_builder.addBefore(ref, ir::Op::IAnd(ir::ScalarType::eU32,
+        instanceId, m_builder.makeConstant(1u)));
+    }
+
+    /**
+     * \brief Loads c<row> of the current view from the bank
+     *
+     * \param [in] ref Instruction to insert before
+     * \param [in] cbvDescriptor Static CBV descriptor
+     * \param [in] type Load type (uvec4 element or one dword of it)
+     * \param [in] row Register index 0..3, u32 def (constant or not)
+     * \param [in] addressOp Original load address, for the component index
+     * \param [in] alignment Load alignment
+     */
+    dxbc_spv::ir::SsaDef emitStereoBankLoad(
+            dxbc_spv::ir::SsaDef      ref,
+            dxbc_spv::ir::SsaDef      cbvDescriptor,
+            dxbc_spv::ir::Type        type,
+            dxbc_spv::ir::SsaDef      row,
+      const dxbc_spv::ir::Op&         addressOp,
+            uint32_t                  alignment) {
+      using namespace dxbc_spv;
+
+      // element = bankIndex + view * 4 + row
+      auto view = emitStereoView(ref);
+
+      auto element = m_builder.addBefore(ref, ir::Op::IShl(ir::ScalarType::eU32,
+        view, m_builder.makeConstant(2u)));
+      element = m_builder.addBefore(ref, ir::Op::IAdd(ir::ScalarType::eU32, element, row));
+      element = m_builder.addBefore(ref, ir::Op::IAdd(ir::ScalarType::eU32,
+        element, m_builder.makeConstant(m_stereoBankIndex)));
+
+      auto address = element;
+      auto addressType = addressOp.getType().getBaseType(0u);
+
+      if (addressType.isVector()) {
+        ir::Op composite(ir::OpCode::eCompositeConstruct, addressType);
+        composite.addOperand(element);
+
+        for (uint32_t i = 1u; i < addressType.getVectorSize(); i++) {
+          composite.addOperand(m_builder.addBefore(ref, ir::Op::CompositeExtract(
+            addressType.getBaseType(), addressOp.getDef(), m_builder.makeConstant(i))));
+        }
+
+        address = m_builder.addBefore(ref, std::move(composite));
+      }
+
+      return m_builder.addBefore(ref, ir::Op::BufferLoad(type,
+        cbvDescriptor, address, alignment).setFlags(ir::OpFlag::eInBounds));
+    }
+
+    uint32_t getStereoDynamicBankMask() const {
+      // Relative reads of shader-defined (def) registers must keep the
+      // shader's value, so only API-sourced c0..c3 are replaced.
+      const auto& layout = m_analysis.GetConstantLayout()->getLayout(D3D9ConstantType::Float);
+      uint32_t mask = (1u << D3D9StereoShader::BankRegCount) - 1u;
+
+      for (uint32_t i = 0u; i < layout.getRangeCount(); i++) {
+        auto range = layout.getRange(i);
+
+        if (!range.isShaderDefined)
+          continue;
+
+        for (uint32_t r = 0u; r < D3D9StereoShader::BankRegCount; r++) {
+          if (r >= range.srcIndex && r < range.srcIndex + range.count)
+            mask &= ~(1u << r);
+        }
+      }
+
+      return mask;
+    }
+
     void setupStaticCbv() {
       using namespace dxbc_spv;
 
@@ -279,7 +537,7 @@ namespace dxvk {
 
       uint32_t totalCount = constantCountF + constantCountI + constantCountB;
 
-      if (!totalCount)
+      if (!totalCount && !m_stereo)
         return;
 
       uint32_t regIndex = m_shaderStage == ir::ShaderStage::eVertex
@@ -289,7 +547,7 @@ namespace dxvk {
       m_firstConstInt = constantCountF;
       m_firstConstBool = constantCountF + constantCountI;
 
-      if (totalCount <= ir::Type::MaxStructMembers && !constantCountB) {
+      if (totalCount <= ir::Type::MaxStructMembers && !constantCountB && !m_stereo) {
         // Put floats first, then integer constants, then bools. Emit a dummy CBV
         // declaration first so we can accumulate type info and add debug names,
         // then fix it up later with the proper type.
@@ -316,6 +574,14 @@ namespace dxvk {
 
         if (!layoutF.isDynamicallyIndexed())
           vec4Count += layoutF.computeConstantCount(0u);
+
+        if (m_stereo) {
+          // Stereo: always this layout, so the bank can be indexed by view.
+          // Same offsets as the struct layout, since every member is a vec4.
+          // The bank (L c0..c3, R c0..c3) follows the mono constants.
+          m_stereoBankIndex = vec4Count;
+          vec4Count += D3D9StereoShader::BankVec4Count;
+        }
 
         auto cbvType = ir::Type(ir::ScalarType::eU32, 4u).addArrayDimension(vec4Count);
 
@@ -389,8 +655,12 @@ namespace dxvk {
               m_builder.setCursor(cursor);
             }
 
-            m_builder.rewriteOp(use, ir::Op::BufferLoad(useOp.getType(), cbvDescriptor,
-              addressDef, useOp.getType().byteSize()).setFlags(ir::OpFlag::eInBounds));
+            if (m_stereo)
+              lowerStereoDynamicLoad(use, cbvDescriptor, addressOp, addressDef);
+            else {
+              m_builder.rewriteOp(use, ir::Op::BufferLoad(useOp.getType(), cbvDescriptor,
+                addressDef, useOp.getType().byteSize()).setFlags(ir::OpFlag::eInBounds));
+            }
           } else {
             // For compacted constants, we need to map the source constant
             // to a member index in the static constant buffer struct.
@@ -417,10 +687,99 @@ namespace dxvk {
 
             auto bufferLoad = m_builder.addBefore(use, ir::Op::BufferLoad(memberType,
               cbvDescriptor, newAddress, useOp.getType().byteSize()).setFlags(ir::OpFlag::eInBounds));
+
+            if (m_stereo && isFloat && srcIndex < D3D9StereoShader::BankRegCount) {
+              // c0..c3: armed ? bank[view * 4 + i] : c[i]
+              auto bankLoad = emitStereoBankLoad(use, cbvDescriptor, memberType,
+                m_builder.makeConstant(srcIndex), addressOp, useOp.getType().byteSize());
+
+              bufferLoad = m_builder.addBefore(use, ir::Op::Select(memberType,
+                emitStereoArmed(use), bankLoad, bufferLoad));
+            }
+
             m_builder.rewriteOp(use, ir::Op::ConsumeAs(useOp.getType(), bufferLoad));
           }
         }
       }
+    }
+
+    void lowerStereoDynamicLoad(
+            dxbc_spv::ir::SsaDef      use,
+            dxbc_spv::ir::SsaDef      cbvDescriptor,
+      const dxbc_spv::ir::Op&         addressOp,
+            dxbc_spv::ir::SsaDef      addressDef) {
+      using namespace dxbc_spv;
+
+      // Relative (or constant) read from the dynamically indexed float
+      // buffer. Same load as mono, then replaced by the bank element if
+      // the register is c0..c3 and the draw is armed.
+      auto valueType = m_builder.getOp(use).getType();
+
+      auto monoLoad = ir::Op::BufferLoad(valueType, cbvDescriptor,
+        addressDef, valueType.byteSize()).setFlags(ir::OpFlag::eInBounds);
+
+      uint32_t bankMask = getStereoDynamicBankMask();
+      uint32_t constIndex = addressOp.isConstant() ? uint32_t(addressOp.getOperand(0u)) : 0u;
+
+      bool mayReadBank = bankMask && (!addressOp.isConstant()
+        || (constIndex < D3D9StereoShader::BankRegCount && (bankMask & (1u << constIndex))));
+
+      if (!mayReadBank) {
+        m_builder.rewriteOp(use, std::move(monoLoad));
+        return;
+      }
+
+      auto monoDef = m_builder.addBefore(use, std::move(monoLoad));
+
+      ir::SsaDef cond = { };
+      ir::SsaDef row = { };
+
+      if (addressOp.isConstant()) {
+        row = m_builder.makeConstant(constIndex);
+        cond = emitStereoArmed(use);
+      } else {
+        auto addressType = m_builder.getOp(addressDef).getType().getBaseType(0u);
+        auto index = addressDef;
+
+        if (addressType.isVector()) {
+          index = m_builder.addBefore(use, ir::Op::CompositeExtract(
+            addressType.getBaseType(), addressDef, m_builder.makeConstant(0u)));
+        }
+
+        if (addressType.getBaseType() != ir::ScalarType::eU32)
+          index = m_builder.addBefore(use, ir::Op::ConsumeAs(ir::ScalarType::eU32, index));
+
+        // Keep the bank read in bounds even when the index is not c0..c3
+        row = m_builder.addBefore(use, ir::Op::UMin(ir::ScalarType::eU32,
+          index, m_builder.makeConstant(D3D9StereoShader::BankRegCount - 1u)));
+
+        auto inBank = m_builder.addBefore(use, ir::Op::ULt(ir::ScalarType::eBool,
+          index, m_builder.makeConstant(D3D9StereoShader::BankRegCount)));
+
+        if (bankMask != (1u << D3D9StereoShader::BankRegCount) - 1u) {
+          auto bit = m_builder.addBefore(use, ir::Op::UShr(ir::ScalarType::eU32,
+            m_builder.makeConstant(bankMask), row));
+          bit = m_builder.addBefore(use, ir::Op::IAnd(ir::ScalarType::eU32, bit, m_builder.makeConstant(1u)));
+          bit = m_builder.addBefore(use, ir::Op::INe(ir::ScalarType::eBool, bit, m_builder.makeConstant(0u)));
+          inBank = m_builder.addBefore(use, ir::Op::BAnd(ir::ScalarType::eBool, inBank, bit));
+        }
+
+        cond = m_builder.addBefore(use, ir::Op::BAnd(ir::ScalarType::eBool, emitStereoArmed(use), inBank));
+      }
+
+      // Bank elements are uvec4 in the static CBV
+      auto elementType = m_builder.getOp(m_staticCbv).getType().getBaseType(0u);
+      auto bankType = ir::Type(addressOp.getType().getBaseType(0u).isVector()
+        ? ir::BasicType(elementType.getBaseType()) : elementType);
+
+      auto staticDescriptor = m_builder.addBefore(use, ir::Op::DescriptorLoad(
+        ir::ScalarType::eCbv, m_staticCbv, m_builder.makeConstant(0u)));
+
+      auto bankLoad = emitStereoBankLoad(use, staticDescriptor, bankType,
+        row, addressOp, valueType.byteSize());
+      bankLoad = m_builder.addBefore(use, ir::Op::ConsumeAs(valueType, bankLoad));
+
+      m_builder.rewriteOp(use, ir::Op::Select(valueType, cond, bankLoad, monoDef));
     }
 
     void lowerLegacyConstBoolInput(const dxbc_spv::ir::Op& decl) {
@@ -1096,10 +1455,13 @@ namespace dxvk {
 
     D3D9ShaderConverter(
       const DxvkShaderHash&           ShaderKey,
+      const std::string&              ShaderName,
       const D3D9ShaderOptions&        Options,
       const void*                     pShaderBytecode,
-      const D3D9ShaderAnalysis&       ShaderAnalysis)
-    : m_key(ShaderKey), m_options(Options), m_analysis(ShaderAnalysis) {
+      const D3D9ShaderAnalysis&       ShaderAnalysis,
+            Rc<D3D9StereoShaderStatus> StereoStatus)
+    : m_name(ShaderName), m_key(ShaderKey), m_options(Options), m_analysis(ShaderAnalysis)
+    , m_stereoStatus(std::move(StereoStatus)) {
       m_dxbc.resize(m_analysis.GetLength());
       std::memcpy(m_dxbc.data(), pShaderBytecode, m_dxbc.size());
     }
@@ -1108,26 +1470,66 @@ namespace dxvk {
 
     void convertShader(
             dxbc_spv::ir::Builder&    builder) {
-      auto debugName = m_key.toString();
+      bool isVs = m_key.stage() == VK_SHADER_STAGE_VERTEX_BIT;
 
+      if (m_options.stereoMode && isVs) {
+        // Stereo variant. If the lowering cannot be done, start over
+        // from a clean builder and compile the regular mono shader.
+        std::string reason;
+
+        try {
+          if (convertShaderWithOptions(builder, m_options, &reason)) {
+            if (m_stereoStatus != nullptr)
+              m_stereoStatus->setResult(m_name, true, nullptr);
+            return;
+          }
+        } catch (const DxvkError& e) {
+          reason = e.message();
+        }
+
+        if (m_stereoStatus != nullptr)
+          m_stereoStatus->setResult(m_name, false, reason.c_str());
+
+        builder = dxbc_spv::ir::Builder();
+
+        D3D9ShaderOptions monoOptions = m_options;
+        monoOptions.stereoMode = 0u;
+
+        convertShaderWithOptions(builder, monoOptions, nullptr);
+      } else {
+        convertShaderWithOptions(builder, m_options, nullptr);
+      }
+    }
+
+    bool convertShaderWithOptions(
+            dxbc_spv::ir::Builder&    builder,
+      const D3D9ShaderOptions&        shaderOptions,
+            std::string*              stereoError) {
       bool isVs = m_key.stage() == VK_SHADER_STAGE_VERTEX_BIT;
 
       dxbc_spv::sm3::Converter::Options options = { };
-      options.name = debugName.c_str();
+      options.name = m_name.c_str();
       options.includeDebugNames = true;
-      options.fastFloatEmulation = m_options.d3d9FloatEmulation == D3D9FloatEmulation::Enabled;
-      options.isSWVP = m_options.isSWVP && isVs;
-      options.forceDynamicTextureType = m_options.forceSamplerTypeSpecConstants && !isVs;
+      options.fastFloatEmulation = shaderOptions.d3d9FloatEmulation == D3D9FloatEmulation::Enabled;
+      options.isSWVP = shaderOptions.isSWVP && isVs;
+      options.forceDynamicTextureType = shaderOptions.forceSamplerTypeSpecConstants && !isVs;
 
       dxbc_spv::util::ByteReader reader(m_dxbc.data(), m_dxbc.size());
 
       dxbc_spv::sm3::Converter converter(reader, options);
 
       if (!converter.convertShader(builder))
-        throw DxvkError(str::format("Failed to convert shader: ", m_key.toString()));
+        throw DxvkError(str::format("Failed to convert shader: ", m_name));
 
-      D3D9ShaderLowerLegacyInputPass lowerLegacyPass(builder, m_options, m_analysis);
-      lowerLegacyPass.run();
+      D3D9ShaderLowerLegacyInputPass lowerLegacyPass(builder, shaderOptions, m_analysis);
+
+      if (!lowerLegacyPass.run()) {
+        if (stereoError)
+          *stereoError = lowerLegacyPass.getStereoError();
+        return false;
+      }
+
+      return true;
     }
 
     uint32_t determineResourceIndex(
@@ -1157,23 +1559,85 @@ namespace dxvk {
     }
 
     void dumpSource(const std::string& path) const {
-      std::ofstream file(str::topath(str::format(path, "/", m_key.toString(), ".sm3_dxbc").c_str()).c_str(), std::ios_base::trunc | std::ios_base::binary);
+      std::ofstream file(str::topath(str::format(path, "/", m_name, ".sm3_dxbc").c_str()).c_str(), std::ios_base::trunc | std::ios_base::binary);
       file.write(reinterpret_cast<const char*>(m_dxbc.data()), m_dxbc.size());
     }
 
     std::string getDebugName() const {
-      return m_key.toString();
+      return m_name;
     }
 
   private:
 
     std::vector<uint8_t> m_dxbc;
 
+    std::string          m_name;
     DxvkShaderHash       m_key;
     D3D9ShaderOptions    m_options;
     D3D9ShaderAnalysis   m_analysis;
 
+    Rc<D3D9StereoShaderStatus> m_stereoStatus;
+
   };
+
+
+  static std::atomic<uint32_t> s_stereoLoweringFailures = { 0u };
+
+
+  uint32_t D3D9StereoShader::computeBankOffset(const D3D9ConstantBufferCopy* layout) {
+    const auto& layoutB = layout->getLayout(D3D9ConstantType::Bool);
+    const auto& layoutI = layout->getLayout(D3D9ConstantType::Int);
+    const auto& layoutF = layout->getLayout(D3D9ConstantType::Float);
+
+    uint32_t vec4Count = layoutI.computeConstantCount(0u)
+      + align(layoutB.computeConstantCount(0u), 4u) / 4u;
+
+    if (!layoutF.isDynamicallyIndexed())
+      vec4Count += layoutF.computeConstantCount(0u);
+
+    return vec4Count * 16u;
+  }
+
+
+  uint32_t D3D9StereoShader::getLoweringFailureCount() {
+    return s_stereoLoweringFailures.load();
+  }
+
+
+  void D3D9StereoShaderStatus::setResult(const std::string& name, bool stereo, const char* reason) {
+    uint32_t expected = Unknown;
+
+    if (!m_status.compare_exchange_strong(expected, stereo ? Stereo : Mono, std::memory_order_acq_rel))
+      return;
+
+    if (!stereo) {
+      s_stereoLoweringFailures += 1u;
+
+      Logger::warn(str::format("D3D9VR: stereo lowering failed for ", name, " -- compiled mono"));
+
+      if (reason && *reason)
+        Logger::warn(str::format("D3D9VR:   reason: ", reason));
+    }
+  }
+
+
+  bool D3D9CommonShader::IsStereoCapable() const {
+    if (m_stereoStatus == nullptr || m_shader == nullptr)
+      return false;
+
+    auto status = m_stereoStatus->get();
+
+    if (status == D3D9StereoShaderStatus::Unknown) {
+      // Not converted in this process yet, or loaded from the IR cache, in
+      // which case the converter never runs. The compiled shader exports
+      // ViewportIndex if and only if the stereo lowering succeeded.
+      bool stereo = m_shader->getShaderMetadata().flags.test(DxvkShaderFlag::ExportsViewport);
+      m_stereoStatus->setResult(m_shader->debugName(), stereo, stereo ? nullptr : "cached mono IR");
+      status = m_stereoStatus->get();
+    }
+
+    return status == D3D9StereoShaderStatus::Stereo;
+  }
 
   D3D9CommonShader::D3D9CommonShader(
             D3D9DeviceEx*         pDevice,
@@ -1182,18 +1646,26 @@ namespace dxvk {
       const D3D9ShaderCreateInfo& ModuleInfo,
       const void*                 pShaderBytecode)
   : m_analysis(std::move(ShaderAnalysis)) {
-    const std::string name = ShaderKey.toString();
+    std::string name = ShaderKey.toString();
+
+    // Single-pass stereo variant: separate cache name, so cached
+    // mono IR is never picked up for a stereo shader or vice versa.
+    if (ModuleInfo.shaderOptions.stereoMode && ShaderKey.stage() == VK_SHADER_STAGE_VERTEX_BIT) {
+      name += D3D9StereoShader::KeySuffix;
+      m_stereoStatus = new D3D9StereoShaderStatus();
+    }
+
     Logger::debug(str::format("Compiling shader ", name));
     
     m_shader = pDevice->GetDXVKDevice()->createCachedShader(
-      ShaderKey.toString(), ModuleInfo.irCreateInfo, nullptr);
+      name, ModuleInfo.irCreateInfo, nullptr);
 
     if (!m_shader) {
-      Rc<D3D9ShaderConverter> converter = new D3D9ShaderConverter(ShaderKey,
-        ModuleInfo.shaderOptions, pShaderBytecode, m_analysis);
+      Rc<D3D9ShaderConverter> converter = new D3D9ShaderConverter(ShaderKey, name,
+        ModuleInfo.shaderOptions, pShaderBytecode, m_analysis, m_stereoStatus);
 
       m_shader = pDevice->GetDXVKDevice()->createCachedShader(
-        ShaderKey.toString(), ModuleInfo.irCreateInfo, std::move(converter));
+        name, ModuleInfo.irCreateInfo, std::move(converter));
     }
 
     pDevice->GetDXVKDevice()->registerShader(m_shader);
