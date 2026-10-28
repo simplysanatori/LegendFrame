@@ -27,6 +27,12 @@ namespace trlvr
         int vr_runtime = 0;
         wchar_t xr_runtime_json[MAX_PATH] = L"";
         bool xr_copy_wait = true;
+        // OpenVR: 1 makes the CPU wait for the GPU to finish the frame
+        // before IVRCompositor::Submit (TransferSurface wait, the 1.0.0 /
+        // 1.1.0 behaviour). 0 skips that wait and relies on queue order:
+        // DXVK's work is flushed and handed to vkQueueSubmit before the
+        // compositor's copy goes on the same queue (LockSubmissionQueue).
+        bool submit_wait = true;
         // OpenXR: convert the controllers' grip pose to the OpenVR grip pose
         // the hand tuning was made against (known for Reverb G2 and Touch).
         bool xr_grip_match_openvr = true;

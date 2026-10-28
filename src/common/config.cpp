@@ -38,6 +38,7 @@ namespace trlvr
             { L"vr", L"vr_runtime", L"auto" },
             { L"vr", L"xr_runtime_json", L"" },
             { L"vr", L"xr_copy_wait", L"1" },
+            { L"vr", L"submit_wait", L"1" },
             { L"vr", L"xr_grip_match_openvr", L"1" },
             { L"vr", L"view_transition_seconds", L"0.3" },
             { L"vr", L"picture_brightness", L"0" },
@@ -270,6 +271,9 @@ namespace trlvr
             L"xr_runtime_json =\r\n"
             L"; 1 waits for the GPU copy into the headset's image before handing it over.\r\n"
             L"xr_copy_wait = 1\r\n"
+            L"; OpenVR: 1 waits for the GPU to finish each frame before handing it to\r\n"
+            L"; SteamVR; 0 lets the GPU finish it in queue order (experiment, faster).\r\n"
+            L"submit_wait = 1\r\n"
             L"; 1 = under OpenXR the hands sit where they do under OpenVR (the\r\n"
             L"; controllers' grip point converted; known for Reverb G2 and Touch).\r\n"
             L"xr_grip_match_openvr = 1\r\n"
@@ -917,6 +921,7 @@ namespace trlvr
         GetPrivateProfileStringW(L"vr", L"xr_runtime_json", L"",
                                  g_config.xr_runtime_json, MAX_PATH, path);
         g_config.xr_copy_wait = read_bool(L"vr", L"xr_copy_wait", true, path);
+        g_config.submit_wait = read_bool(L"vr", L"submit_wait", true, path);
         g_config.xr_grip_match_openvr =
             read_bool(L"vr", L"xr_grip_match_openvr", true, path);
         g_config.stereo = read_bool(L"vr", L"stereo", true, path);

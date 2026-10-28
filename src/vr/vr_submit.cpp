@@ -4569,7 +4569,13 @@ namespace trlvr
             if (!surface)
                 return false;
             log_set_activity("DXVK TransferSurface");
-            const bool transferred = SUCCEEDED(g_vr->TransferSurface(surface, TRUE));
+            // [vr] submit_wait = 0 skips the CPU wait for the GPU: the
+            // layout transition is still recorded, and submit_openvr's
+            // LockSubmissionQueue flushes it and waits until DXVK has queued
+            // it, so the compositor's copy lands behind the frame on the
+            // same VkQueue.
+            const BOOL wait = config().submit_wait ? TRUE : FALSE;
+            const bool transferred = SUCCEEDED(g_vr->TransferSurface(surface, wait));
             log_set_activity(nullptr);
             if (!transferred)
                 return false;
@@ -4922,6 +4928,14 @@ namespace trlvr
         g_vr = created;
         g_ready = true;
         log("submit: Vulkan interop and VR session up");
+        if (vr_backend() == VrBackendOpenVr)
+            log(config().submit_wait
+                ? "submit: GPU wait before Submit on (submit_wait=1)"
+                : "submit: GPU wait before Submit off (submit_wait=0)");
+        else
+            log("submit: OpenXR copy wait %s (xr_copy_wait=%d; submit_wait "
+                "is OpenVR only)", config().xr_copy_wait ? "on" : "off",
+                config().xr_copy_wait ? 1 : 0);
         return true;
     }
 

@@ -140,11 +140,21 @@ namespace dxvk {
         0, image->info().numLayers
       };
 
+      // The transition is recorded on the GPU timeline: a barrier from the
+      // image's default layout (first scope: every earlier write to it) to
+      // TRANSFER_SRC_OPTIMAL in the exec command buffer. The image is not
+      // shared, so the end of the command list leaves it in that layout;
+      // DXVK tracks it as non-default and moves it back on its next use,
+      // which is queued after the compositor's copy.
       m_device->TransformImage(
         tex, &subresources,
         image->info().layout,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
+      // CPU wait for the frame to finish on the GPU. Only needed when the
+      // consumer does not read the image on DXVK's queue in submission
+      // order; for OpenVR it is optional (see d3d9_vr.h), provided
+      // LockSubmissionQueue runs before Submit.
       if (waitResourceIdle) {
         m_device->WaitForResource(*image,
           tex->GetMappingBufferSequenceNumber(0u), D3DLOCK_READONLY);
