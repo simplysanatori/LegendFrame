@@ -328,6 +328,10 @@ namespace trlvr
         // the centre of view. 0 is fully world-relative. Menus have their own
         // policies.
         float hud_follow = 0.85f;
+        // Nudges the gameplay HUD (health, ammo, prompts) only: +x right,
+        // +y up, in NDC after ui_scale (0.5 = a quarter of the view).
+        float hud_offset_x = 0.0f;
+        float hud_offset_y = 0.0f;
 
         // The settings overlay in the headset: a square panel placed in the
         // room in front of the head when it opens (and at a recentre or a

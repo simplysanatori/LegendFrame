@@ -647,7 +647,9 @@ namespace trlvr
     Mat4 reproject_ndc_to_frustum(const Mat4& source,
                                   const Mat4& reference,
                                   const Mat4& target,
-                                  float scale)
+                                  float scale,
+                                  float bias_x,
+                                  float bias_y)
     {
         Mat4 result = source;
         if (reference.m[0][0] == 0.0f || reference.m[1][1] == 0.0f)
@@ -656,7 +658,7 @@ namespace trlvr
         // For X (and identically Y), a target-frustum NDC coordinate is:
         //
         //   target_ndc = target_s * ray + target_o
-        //   ray = (scale * source_ndc - reference_o) / reference_s
+        //   ray = (scale * source_ndc + bias - reference_o) / reference_s
         //
         // therefore target_ndc = a * source_ndc + b. In homogeneous clip
         // space that is target_clip = a * source_clip + b * source_w.
@@ -664,8 +666,10 @@ namespace trlvr
         const float y_ratio = target.m[1][1] / reference.m[1][1];
         const float x_a = scale * x_ratio;
         const float y_a = scale * y_ratio;
-        const float x_b = target.m[2][0] - x_ratio * reference.m[2][0];
-        const float y_b = target.m[2][1] - y_ratio * reference.m[2][1];
+        const float x_b = target.m[2][0] - x_ratio * reference.m[2][0]
+                        + x_ratio * bias_x;
+        const float y_b = target.m[2][1] - y_ratio * reference.m[2][1]
+                        + y_ratio * bias_y;
 
         for (int row = 0; row < 4; ++row)
         {
@@ -681,11 +685,14 @@ namespace trlvr
                                        const Mat4& reference,
                                        const Mat4& target,
                                        const Mat4& head_view_rotation,
-                                       float scale)
+                                       float scale,
+                                       float bias_x,
+                                       float bias_y)
     {
         Mat4 inv_reference{};
         if (!invert(reference, &inv_reference))
-            return reproject_ndc_to_frustum(source, reference, target, scale);
+            return reproject_ndc_to_frustum(source, reference, target, scale,
+                                            bias_x, bias_y);
 
         // Source produces the game's clip coordinates. Scaling X/Y there is
         // the existing angular-size control. Inverting the centre projection
@@ -695,6 +702,10 @@ namespace trlvr
         Mat4 clip_scale = Mat4::identity();
         clip_scale.m[0][0] = scale;
         clip_scale.m[1][1] = scale;
+        // NDC bias after the scale: the clip vector is (ndc * w, w) and
+        // row 3 is multiplied by w, so m[3][0] / m[3][1] add bias * w.
+        clip_scale.m[3][0] = bias_x;
+        clip_scale.m[3][1] = bias_y;
 
         Mat4 rotation = head_view_rotation;
         rotation.m[3][0] = rotation.m[3][1] = rotation.m[3][2] = 0.0f;
