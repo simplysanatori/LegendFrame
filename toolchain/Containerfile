@@ -1,0 +1,6 @@
+FROM registry.fedoraproject.org/fedora:43
+RUN dnf -y install --setopt=install_weak_deps=False \
+      mingw32-gcc mingw32-gcc-c++ mingw32-winpthreads-static mingw32-headers mingw32-crt \
+      mingw32-binutils meson ninja-build glslang git python3 make cmake file diffutils patch which findutils \
+    && dnf clean all
+WORKDIR /work

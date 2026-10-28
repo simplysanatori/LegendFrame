@@ -32,6 +32,14 @@ namespace trlvr
         IDirect3DDevice9* _device;
         IDirect3D9* _parent;
         volatile LONG _ref;
+        // For single-pass stereo eligibility: a programmable vertex shader
+        // is bound, and the streams with instance data (SetStreamSourceFreq,
+        // mirroring DXVK's own tracking). State blocks applied behind our
+        // back can make these stale; DXVK then draws the armed draw per eye
+        // itself, which is the same picture, so a stale value costs speed,
+        // never correctness.
+        bool _vs_bound = false;
+        DWORD _instanced_streams = 0;
 
         ProxyDevice(IDirect3DDevice9* device, IDirect3D9* parent)
             : _device(device), _parent(parent), _ref(1)
@@ -42,6 +50,7 @@ namespace trlvr
         ~ProxyDevice()
         {
             reflection_stereo_release();
+            stereo_device_closing(_device);
             vr_submit_device_closing(_device);
             overlay_device_closing(_device);
             if (_device)
@@ -131,7 +140,9 @@ namespace trlvr
         STDMETHOD(SetDepthStencilSurface)(THIS_ IDirect3DSurface9* pNewZStencil) { reflection_stereo_note_depth(pNewZStencil); return _device->SetDepthStencilSurface(pNewZStencil); }
         STDMETHOD(GetDepthStencilSurface)(THIS_ IDirect3DSurface9** ppZStencilSurface) { return _device->GetDepthStencilSurface(ppZStencilSurface); }
         STDMETHOD(BeginScene)(THIS) { return _device->BeginScene(); }
-        STDMETHOD(EndScene)(THIS) { return _device->EndScene(); }
+        // The scene's draws are over: nothing the mod draws later (submit
+        // overlays, ImGui) may find the device armed for single-pass stereo.
+        STDMETHOD(EndScene)(THIS) { stereo_end_scene(); return _device->EndScene(); }
         STDMETHOD(Clear)(THIS_ DWORD Count, CONST D3DRECT* pRects, DWORD Flags, D3DCOLOR Color, float Z, DWORD Stencil) { IDirect3DSurface9* target = nullptr; if (_device->GetRenderTarget(0, &target) == D3D_OK && target) target->Release(); gpu_profile_event_begin(Flags & D3DCLEAR_TARGET ? "Clear colour+" : "Clear depth", nullptr, target); const HRESULT hr = _device->Clear(Count, pRects, Flags, Color, Z, Stencil); if (SUCCEEDED(hr)) reflection_stereo_after_clear(_device, Count, pRects, Flags, Color, Z, Stencil); gpu_profile_event_end(); return hr; }
         STDMETHOD(SetTransform)(THIS_ D3DTRANSFORMSTATETYPE State, CONST D3DMATRIX* pMatrix);
         STDMETHOD(GetTransform)(THIS_ D3DTRANSFORMSTATETYPE State, D3DMATRIX* pMatrix) { return _device->GetTransform(State, pMatrix); }
@@ -232,6 +243,17 @@ namespace trlvr
                 vr_log_hand_draw_c0_sample(
                     camera_first_person_current_gpu_hand(),
                     hand_state_mark, eye, actual);
+            };
+            // Single-pass: the per-eye c0 lives in DXVK's bank, not in the
+            // registers, so the sample is the bank's matrix.
+            const auto sample_hand_projection_bank = [&](Eye eye,
+                                                         const float* regs)
+            {
+                if (hand_state_mark == -1)
+                    return;
+                vr_log_hand_draw_c0_sample(
+                    camera_first_person_current_gpu_hand(),
+                    hand_state_mark, eye, regs);
             };
             if (menu_overlay)
             {
@@ -335,6 +357,8 @@ namespace trlvr
             // right eye into its twin, each with that eye's (mirrored) camera.
             if (reflection_stereo_draw_here(_device) && vr_have_game_c0())
             {
+                // Two draws into two surfaces: never single-pass.
+                stereo_disarm();
                 const int mode = reflection_stereo_reflection_mode();
                 if (mode == 2)
                 {
@@ -343,10 +367,13 @@ namespace trlvr
                 }
                 if (mode == 1)
                 {
+                    stereo_note_mono_draw();
                     const HRESULT hr = issue();
                     restore_scoped_state();
                     return hr;
                 }
+                if (stereo_single_pass_active())
+                    stereo_note_reflection_draw();
                 D3DVIEWPORT9 viewport{};
                 _device->GetViewport(&viewport);
                 HRESULT hr = D3D_OK;
@@ -368,6 +395,7 @@ namespace trlvr
                 reflection_stereo_bind_twin(_device, false);
                 _device->SetViewport(&viewport);
                 _device->SetVertexShaderConstantF(0, vr_draw_c0_restore(), 4);
+                stereo_note_c0_restored();
                 restore_scoped_state();
                 return hr;
             }
@@ -376,10 +404,53 @@ namespace trlvr
             reflection_stereo_note_draw(_device, passes > 1);
             if (passes > 1)
             {
+                // Single-pass (SPS-VI): one draw, both eyes, when the draw
+                // needs nothing per eye that the bank and the two viewports
+                // do not carry. Everything else goes out two-pass below.
+                StereoSinglePass single;
+                bool precomputed = false;
+                if (stereo_single_pass_active() &&
+                    stereo_single_pass_eligible(_device, _vs_bound,
+                                                _instanced_streams != 0))
+                {
+                    if (stereo_single_begin(_device, &single))
+                    {
+                        // Diorama hands in front: DXVK gives both eye
+                        // viewports the current depth range, so squeezing
+                        // the game's viewport does what the per-eye
+                        // SetViewport does in two-pass.
+                        D3DVIEWPORT9 game_viewport{};
+                        bool front = false;
+                        if (hands_in_front &&
+                            SUCCEEDED(_device->GetViewport(&game_viewport)))
+                        {
+                            D3DVIEWPORT9 vp = game_viewport;
+                            vp.MinZ = 0.0f;
+                            vp.MaxZ = 0.02f;
+                            front = SUCCEEDED(_device->SetViewport(&vp));
+                        }
+                        sample_hand_projection_bank(EyeLeft, single.c0[0]);
+                        sample_hand_projection_bank(EyeRight, single.c0[1]);
+                        const HRESULT hr = issue();
+                        if (front)
+                            _device->SetViewport(&game_viewport);
+                        stereo_single_end(_device, single);
+                        restore_scoped_state();
+                        return hr;
+                    }
+                    // Arming failed (single-pass is off now): both eyes'
+                    // matrices are already made, so the passes reuse them.
+                    precomputed = true;
+                }
+                // A two-pass draw must not find the device armed.
+                stereo_disarm();
                 HRESULT hr = D3D_OK;
                 for (int p = 0; p < passes; ++p)
                 {
-                    stereo_begin_pass(_device, p);
+                    if (precomputed)
+                        stereo_begin_pass_precomputed(_device, p, single);
+                    else
+                        stereo_begin_pass(_device, p);
                     if (hands_in_front)
                     {
                         // stereo_end_draw puts the game's viewport back.
@@ -402,6 +473,9 @@ namespace trlvr
                 return hr;
             }
 
+            // Mono draws are never armed.
+            stereo_disarm();
+            stereo_note_mono_draw();
             float fix[16];
             const bool patched = vr_draw_c0_override(fix);
             if (patched)
@@ -409,7 +483,10 @@ namespace trlvr
             sample_hand_projection(vr_current_eye());
             const HRESULT hr = issue();
             if (patched)
+            {
                 _device->SetVertexShaderConstantF(0, vr_draw_c0_restore(), 4);
+                stereo_note_c0_restored();
+            }
             restore_scoped_state();
             return hr;
         }
@@ -418,10 +495,13 @@ namespace trlvr
         {
             // Another mod's ImGui menu: into its own overlay (imgui_overlay.h).
             if (imgui_overlay_matches(imgui_state()))
+            {
+                stereo_disarm();
                 return imgui_overlay_draw(_device, imgui_state(), [&] {
                     return _device->DrawIndexedPrimitive(PrimitiveType,
                         BaseVertexIndex, MinVertexIndex, NumVertices,
                         startIndex, primCount); });
+            }
             hud_capture_set_call(_ReturnAddress(), primCount);
             return dispatch_draw([&] { return _device->DrawIndexedPrimitive(
                 PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices,
@@ -436,7 +516,7 @@ namespace trlvr
         STDMETHOD(SetFVF)(THIS_ DWORD FVF) { imgui_state().fvf = FVF; return _device->SetFVF(FVF); }
         STDMETHOD(GetFVF)(THIS_ DWORD* pFVF) { return _device->GetFVF(pFVF); }
         STDMETHOD(CreateVertexShader)(THIS_ CONST DWORD* pFunction, IDirect3DVertexShader9** ppShader) { return _device->CreateVertexShader(pFunction, ppShader); }
-        STDMETHOD(SetVertexShader)(THIS_ IDirect3DVertexShader9* pShader) { imgui_state().vertex_shader = pShader != nullptr; return _device->SetVertexShader(pShader); }
+        STDMETHOD(SetVertexShader)(THIS_ IDirect3DVertexShader9* pShader) { imgui_state().vertex_shader = pShader != nullptr; const HRESULT hr = _device->SetVertexShader(pShader); if (SUCCEEDED(hr)) _vs_bound = pShader != nullptr; return hr; }
         STDMETHOD(GetVertexShader)(THIS_ IDirect3DVertexShader9** ppShader) { return _device->GetVertexShader(ppShader); }
         STDMETHOD(GetVertexShaderConstantF)(THIS_ UINT StartRegister, float* pConstantData, UINT Vector4fCount) { return _device->GetVertexShaderConstantF(StartRegister, pConstantData, Vector4fCount); }
         STDMETHOD(SetVertexShaderConstantI)(THIS_ UINT StartRegister, CONST int* pConstantData, UINT Vector4iCount) { return _device->SetVertexShaderConstantI(StartRegister, pConstantData, Vector4iCount); }
@@ -445,7 +525,21 @@ namespace trlvr
         STDMETHOD(GetVertexShaderConstantB)(THIS_ UINT StartRegister, BOOL* pConstantData, UINT BoolCount) { return _device->GetVertexShaderConstantB(StartRegister, pConstantData, BoolCount); }
         STDMETHOD(SetStreamSource)(THIS_ UINT StreamNumber, IDirect3DVertexBuffer9* pStreamData, UINT OffsetInBytes, UINT Stride) { return _device->SetStreamSource(StreamNumber, pStreamData, OffsetInBytes, Stride); }
         STDMETHOD(GetStreamSource)(THIS_ UINT StreamNumber, IDirect3DVertexBuffer9** ppStreamData, UINT* pOffsetInBytes, UINT* pStride) { return _device->GetStreamSource(StreamNumber, ppStreamData, pOffsetInBytes, pStride); }
-        STDMETHOD(SetStreamSourceFreq)(THIS_ UINT StreamNumber, UINT Setting) { return _device->SetStreamSourceFreq(StreamNumber, Setting); }
+        STDMETHOD(SetStreamSourceFreq)(THIS_ UINT StreamNumber, UINT Setting)
+        {
+            const HRESULT hr = _device->SetStreamSourceFreq(StreamNumber, Setting);
+            // Single-pass stereo needs the instance index, so a draw with
+            // instance data on any stream stays two-pass (DXVK tracks it
+            // the same way).
+            if (SUCCEEDED(hr) && StreamNumber < 32)
+            {
+                if (Setting & D3DSTREAMSOURCE_INSTANCEDATA)
+                    _instanced_streams |= 1u << StreamNumber;
+                else
+                    _instanced_streams &= ~(1u << StreamNumber);
+            }
+            return hr;
+        }
         STDMETHOD(GetStreamSourceFreq)(THIS_ UINT StreamNumber, UINT* pSetting) { return _device->GetStreamSourceFreq(StreamNumber, pSetting); }
         STDMETHOD(SetIndices)(THIS_ IDirect3DIndexBuffer9* pIndexData) { return _device->SetIndices(pIndexData); }
         STDMETHOD(GetIndices)(THIS_ IDirect3DIndexBuffer9** ppIndexData) { return _device->GetIndices(ppIndexData); }

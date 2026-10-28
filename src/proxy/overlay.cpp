@@ -4,6 +4,7 @@
 #include "../common/config.h"
 #include "../common/log.h"
 #include "../vr/vr_session.h"
+#include "../vr/stereo.h"
 #include "../vr/tr7_menu_hook.h"
 
 #include "imgui.h"
@@ -483,6 +484,12 @@ namespace trlvr
             slider("Menu and HUD scale", &c.ui_scale, 0.1f, 2.0f, "%.2f",
                    L"vr", L"ui_scale", "Size of menus and the HUD in the "
                    "headset.");
+            slider("HUD offset X", &c.hud_offset_x, -0.5f, 0.5f, "%+.2f",
+                   L"vr", L"hud_offset_x", "Shifts the gameplay HUD "
+                   "sideways in your view. Positive is to the right.");
+            slider("HUD offset Y", &c.hud_offset_y, -0.5f, 0.5f, "%+.2f",
+                   L"vr", L"hud_offset_y", "Shifts the gameplay HUD up or "
+                   "down in your view. Positive is up.");
             toggle("Pause menu fixed in the room", &c.pause_world_locked,
                    L"vr", L"pause_world_locked",
                    "On: the pause menu stays level where you were looking "
@@ -1107,6 +1114,15 @@ namespace trlvr
                        &c.picture_follow_game, L"vr", L"picture_follow_game",
                        "The game's own sliders only work fullscreen; this "
                        "applies what they set to the headset image instead.");
+                // Live switch only: the start-up choice stays [vr]
+                // stereo_mode. Not saved here.
+                bool single_pass = stereo_single_pass_active();
+                if (ImGui::Checkbox("Single-pass stereo (Shift+F6)",
+                                    &single_pass))
+                    stereo_set_single_pass(single_pass);
+                help("Draws both eyes in one pass where the scene allows. "
+                     "Live switch; [vr] stereo_mode sets the start-up mode. "
+                     "Needs the LegendFrame DXVK build. Not saved.");
             }
             if (ImGui::CollapsingHeader("Third-person cameras"))
                 camera_section(c);

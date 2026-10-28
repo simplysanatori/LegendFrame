@@ -70,6 +70,19 @@ namespace dxvk {
     float pointScaleC = 0.0f;
   };
 
+  /// LegendFrame single-pass stereo push data (VS stage), see the contract
+  /// in d3d9_vr.h. Placed after the FF VS block so no existing offset moves.
+  struct D3D9StereoPushData {
+    static constexpr VkShaderStageFlags Stages = VK_SHADER_STAGE_VERTEX_BIT;
+    static constexpr uint32_t           Offset = sizeof(D3D9VsPushData) + sizeof(D3D9FfvsPushData);
+
+    // Bit 0 (D3D9_VR_STEREO_FLAG_ARMED): stereo draw. Other bits zero.
+    uint32_t flags = 0u;
+  };
+
+  static_assert(D3D9StereoPushData::Offset == 20u, "stereo push offset is frozen at 20");
+  static_assert(D3D9StereoPushData::Offset + sizeof(D3D9StereoPushData) <= uint32_t(DxvkLimits::MaxPerStagePushDataSize), "VS push block overflow");
+
   /// Fixed-function pixel shader push data.
   struct D3D9FfpsPushData {
     static constexpr VkShaderStageFlags Stages = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -85,6 +98,7 @@ namespace dxvk {
     D3D9VsPushData vs;
     D3D9FfvsPushData ffvs;
     D3D9FfpsPushData ffps;
+    D3D9StereoPushData stereo;
   };
 
   /// Sampler modes

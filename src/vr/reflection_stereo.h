@@ -45,6 +45,12 @@ namespace trlvr
     // Main scene, per eye: the right eye samples the twin.
     void reflection_stereo_eye_textures(IDirect3DDevice9* device, int eye);
     void reflection_stereo_restore_textures(IDirect3DDevice9* device);
+    // Single-pass stereo eligibility: true if reflection_stereo_eye_textures
+    // would swap a texture for the draw about to be issued (a stage holds
+    // the reflection while its twin is drawn per eye, or the WaterFX screen
+    // copy while it is split by eye). Such a draw needs a different texture
+    // per eye, so it stays two-pass. Same tests, no side effects.
+    bool reflection_stereo_draw_needs_eye_textures(IDirect3DDevice9* device);
 
     // Water Effects (2026-10-11): the game copies the whole screen into a
     // texture (0x4FE, by StretchRect at 0x00414170) and draws its water

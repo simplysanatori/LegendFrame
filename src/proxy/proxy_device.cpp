@@ -76,6 +76,7 @@ namespace trlvr
                                  HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion)
     {
         // The frame boundary. Everything the mod does per frame hangs off here.
+        stereo_disarm();
         if (config().force_windowed)
             window_tick();
         if (vr_ready())
@@ -159,8 +160,17 @@ namespace trlvr
         reflection_stereo_release();
         imgui_overlay_release();
         overlay_before_reset();
+        stereo_disarm();
         const HRESULT hr = _device->Reset(pPresentationParameters);
         gpu_profile_set_device(_device);
+        // Reset puts every device state back to its default: no vertex
+        // shader, no stream frequencies, zero constants, nothing armed.
+        stereo_device_reset();
+        if (SUCCEEDED(hr))
+        {
+            _vs_bound = false;
+            _instanced_streams = 0;
+        }
 
         // A reset can put the fullscreen styling back, so redo it.
         if (SUCCEEDED(hr) && config().force_windowed && pPresentationParameters)
@@ -186,6 +196,7 @@ namespace trlvr
         // projection has and a 2D or orthographic pass does not. So HUD and
         // post-processing draws that also touch c0..c3 are left alone without
         // needing to identify them individually.
+        bool noted = false;
         if (vr_ready() && StartRegister == 0 && Vector4fCount == 4 && pConstantData)
         {
             const GameProjection gp = projection_from_registers(pConstantData);
@@ -198,11 +209,16 @@ namespace trlvr
             if (vr_substitute_c0(pConstantData, regs))
             {
                 vr_note_c0(pConstantData, regs);
+                stereo_note_vs_constants(StartRegister, Vector4fCount, true);
                 return _device->SetVertexShaderConstantF(StartRegister, regs, 4);
             }
             vr_note_c0(pConstantData, pConstantData);
+            noted = true;
         }
 
+        // Single-pass stereo's c0 carry-over needs to know whether c0..c3
+        // still hold what was noted.
+        stereo_note_vs_constants(StartRegister, Vector4fCount, noted);
         return _device->SetVertexShaderConstantF(StartRegister, pConstantData, Vector4fCount);
     }
 

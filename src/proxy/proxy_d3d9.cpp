@@ -296,6 +296,11 @@ namespace trlvr
         }
         if (vr_ready())
             vr_submit_init(device);        // the real device, not the wrapper
+        // Single-pass stereo (enabled with same-frame stereo; stereo_mode
+        // picks the starting path): DXVK has to know before the game
+        // creates its first vertex shader, which can only happen once we
+        // return.
+        stereo_device_created(device);
         return hr;
     }
 }

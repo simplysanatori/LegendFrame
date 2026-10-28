@@ -663,9 +663,12 @@ namespace dxvk {
     /* Tomb Raider: Legend VR mod (trlvr). The mod launches a patched     *
      * copy, trl_vr.exe, which the profile above never matched: its      *
      * cached write-only buffers fix was off, and each CPU-skinned object *
-     * cost up to a millisecond. No frame cap here: VR runs at 90+.       */
+     * cost up to a millisecond. No frame cap here: VR runs at 90+.       *
+     * trlvrSinglePass: LegendFrame single-pass stereo interface on      *
+     * (default anyway); set False in dxvk.conf to force two-pass.       */
     { R"(\\trl_vr\.exe$)", {{
       { "d3d9.cachedWriteOnlyBuffers",      "True" },
+      { "d3d9.trlvrSinglePass",             "True" },
     }} },
     /* Everquest                                  */
     { R"(\\eqgame\.exe$)", {{
