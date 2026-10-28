@@ -5,9 +5,10 @@
 # Tomb Raider: Legend, tunes the game for the Frame and queues a "Tomb Raider: Legend VR" shortcut.
 # See docs/FRAME-INSTALL.md for the full story.
 #
-#   install.sh [--payload DIR] [--steam-dir DIR] [--game-dir DIR] [--userid N] [options]
+#   install.sh [--payload DIR|ZIP] [--steam-dir DIR] [--game-dir DIR] [--userid N] [options]
 #
-#   --payload DIR       folder with the built files (default: ./dist next to this script)
+#   --payload DIR|ZIP   folder with the built files, or the release zip
+#                       (legendframe-<version>-payload.zip); default: ./dist next to this script
 #   --steam-dir DIR     Steam root (default ~/.local/share/Steam)
 #   --game-dir DIR      the game folder, instead of looking it up from appmanifest_7000.acf
 #   --userid N          Steam user id, when more than one account has logged in on this Frame
@@ -94,6 +95,19 @@ if [ "$CHECK" = 0 ]; then
       if [ -f "$d/d3d9.dll" ]; then PAYLOAD="$d"; break; fi
     done
     [ -n "$PAYLOAD" ] || die "no payload found. Build first (see toolchain/) or pass --payload DIR (looked in $SELF_DIR/dist and $SELF_DIR/../dist)."
+  fi
+  if [ -f "$PAYLOAD" ]; then
+    case "$PAYLOAD" in *.zip|*.ZIP) ;; *) die "payload must be a folder or a .zip file: $PAYLOAD" ;; esac
+    ZIP_TMP="$(mktemp -d "${TMPDIR:-/tmp}/legendframe-payload.XXXXXX")"
+    trap 'rm -rf "$ZIP_TMP"' EXIT
+    python3 -I -m zipfile -e "$PAYLOAD" "$ZIP_TMP" || die "could not unpack $PAYLOAD"
+    if [ -f "$ZIP_TMP/d3d9.dll" ]; then PAYLOAD="$ZIP_TMP"
+    else
+      sub=("$ZIP_TMP"/*/d3d9.dll)
+      [ -f "${sub[0]}" ] || die "no d3d9.dll in $PAYLOAD"
+      PAYLOAD="$(dirname "${sub[0]}")"
+    fi
+    say "Unpacked the payload zip to $PAYLOAD"
   fi
   [ -d "$PAYLOAD" ] || die "payload folder not found: $PAYLOAD"
   PAYLOAD="$(cd "$PAYLOAD" && pwd)"
@@ -191,7 +205,7 @@ import os, sys
 path = sys.argv[1]
 WANT = [("fsaa", "off"), ("msaa", "2"), ("comfort_vignette", "off"), ("cull_fov_degrees", "110"),
         ("stereo_mode", "singlepass"), ("stereo_stats", "0"), ("vr_runtime", "openvr"),
-        ("submit_wait", "0"), ("god_carry_fix", "1"), ("hud_offset_x", "0"), ("hud_offset_y", "0")]
+        ("submit_wait", "0"), ("god_carry_fix", "1"), ("hud_offset_x", "-0.08"), ("hud_offset_y", "0.08")]
 raw = open(path, "r", encoding="utf-8", errors="surrogateescape", newline="").read()
 eol = "\r" if "\r\n" in raw else ""
 lines = raw.split("\n")          # lines keep their own \r, so untouched lines stay byte-identical
