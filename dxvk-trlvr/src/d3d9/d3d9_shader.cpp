@@ -510,8 +510,10 @@ namespace dxvk {
         if (!range.isShaderDefined)
           continue;
 
+        // In the dynamically indexed layout dstIndex is the register
+        // number; srcIndex of a shader-defined range indexes the def data.
         for (uint32_t r = 0u; r < D3D9StereoShader::BankRegCount; r++) {
-          if (r >= range.srcIndex && r < range.srcIndex + range.count)
+          if (r >= range.dstIndex && r < range.dstIndex + range.count)
             mask &= ~(1u << r);
         }
       }
@@ -686,8 +688,13 @@ namespace dxvk {
             auto bufferLoad = m_builder.addBefore(use, ir::Op::BufferLoad(memberType,
               cbvDescriptor, newAddress, useOp.getType().byteSize()).setFlags(ir::OpFlag::eInBounds));
 
-            if (m_stereo && isFloat && srcIndex < D3D9StereoShader::BankRegCount) {
-              // c0..c3: armed ? bank[view * 4 + i] : c[i]
+            if (m_stereo && isFloat && srcIndex < D3D9StereoShader::BankRegCount
+             && (getStereoDynamicBankMask() & (1u << srcIndex))) {
+              // c0..c3: armed ? bank[view * 4 + i] : c[i]. Registers set by
+              // def keep the shader's own value in both eyes (same mask as
+              // the dynamic path). Static reads of def registers are normally
+              // folded before they get here; this is the safety net.
+
               auto bankLoad = emitStereoBankLoad(use, cbvDescriptor, memberType,
                 m_builder.makeConstant(srcIndex), addressOp, useOp.getType().byteSize());
 
