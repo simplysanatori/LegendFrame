@@ -172,6 +172,11 @@ namespace dxvk {
 
     /// Add an extra front buffer to make GetFrontBufferData() work correctly when the swapchain only has a single buffer
     bool extraFrontbuffer;
+
+    /// TRLVR / LegendFrame: allow IDirect3DVRStereo9::EnableSinglePassStereo
+    /// (single-pass stereo by viewport index). False makes it fail, so the
+    /// proxy keeps two-pass. Kill switch, dxvk.conf d3d9.trlvrSinglePass.
+    bool trlvrSinglePass;
   };
 
 }

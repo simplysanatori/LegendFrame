@@ -137,6 +137,11 @@ __CRT_UUID_DECL(IDirect3DVR9, 0xb1e5c0a4, 0x3f7d, 0x4a92, 0x8c, 0x16, 0x2d, 0x9e
 //    {eye * eyeW, 0, eyeW, eyeH}, eye 0 = left. Each viewport gets the game's
 //    MinZ/MaxZ, DXVK's usual half-pixel offset and the scissor test per eye,
 //    i.e. exactly what two SetViewport calls produce in two-pass today.
+//  - An armed draw that cannot be single-pass (fixed-function VS, stream
+//    instancing, or a VS whose stereo lowering failed) is counted as
+//    rejected and drawn by DXVK once per eye instead: eye viewport, that
+//    eye's c0..c3 in the API registers, c0..c3 restored afterwards. That is
+//    the proxy's two-pass result, so a rejection never loses an eye.
 //  - The VS (compiled with the stereo variant) computes
 //        view = (stereo flag set) ? (InstanceId & 1) : 0
 //    writes ViewportIndex = view, and replaces every read of c0..c3 with
@@ -228,8 +233,9 @@ IDirect3DVRStereo9 : public IUnknown {
 
   // Running totals since device creation (never reset, wrap at 2^32):
   // pStereoDraws = draws emitted as single-pass stereo, pRejected = armed
-  // draws drawn mono instead (stream instancing or no programmable VS).
-  // Either pointer may be null.
+  // draws that could not be (fixed-function VS, stream instancing, VS
+  // compiled mono) and were drawn per eye by DXVK instead. Either pointer
+  // may be null.
   virtual HRESULT STDMETHODCALLTYPE GetStereoStats(
           UINT*                 pStereoDraws,
           UINT*                 pRejected) = 0;
