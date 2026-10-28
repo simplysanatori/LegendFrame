@@ -33,6 +33,16 @@ namespace trlvr
         bool stereo = true;
         bool stereo_same_frame = true;
         bool stereo_lock_pose = true;
+        // LegendFrame single-pass stereo (docs/DESIGN.md 5.2): how a scene
+        // draw reaches both eyes when stereo_same_frame is on. 0 two-pass
+        // (each draw issued once per eye, 1.1.0 behaviour), 1 single-pass
+        // (one draw, both eyes by viewport index in our DXVK fork; falls
+        // back to two-pass per draw, or entirely if DXVK cannot do it).
+        // stereo_same_frame = 0 (alternate eyes) overrides both.
+        int stereo_mode = 0;
+        // Logs a "stereo stats:" line every 5 s (single-pass and fallback
+        // draw counts).
+        bool stereo_stats = false;
 
         bool head_tracking = true;
         bool head_rotation = true;
