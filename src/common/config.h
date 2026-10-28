@@ -43,6 +43,13 @@ namespace trlvr
         // Logs a "stereo stats:" line every 5 s (single-pass and fallback
         // draw counts).
         bool stereo_stats = false;
+        // M4: both eyes' c0 substitution in one call (shared prefix, per-
+        // frame eye matrix cache), bit-identical to two per-eye calls.
+        // 0 = the legacy per-eye calls, for A/B.
+        bool stereo_shared_math = true;
+        // Debug: append every c0 substitution's inputs to c0_capture.bin
+        // beside the game, for src/test/mathtest.sh to replay.
+        bool vr_capture_c0 = false;
 
         bool head_tracking = true;
         bool head_rotation = true;
