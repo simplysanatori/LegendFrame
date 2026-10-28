@@ -1,6 +1,7 @@
 #include "god_carry.h"
 
 #include <math.h>
+#include <string.h>
 #include <cmath>
 
 namespace trlvr
@@ -81,5 +82,46 @@ namespace trlvr
         out[1] = q[1];
         out[2] = -q[2];
         return true;
+    }
+
+    int carry_matrix_range(int drawn_total, int hers_total, int limit)
+    {
+        int total = drawn_total > hers_total ? drawn_total : hers_total;
+        if (total > limit)
+            total = limit;
+        return total > 0 ? total : 0;
+    }
+
+    int carry_count_rewritten(const float* written, const float* now, int total,
+                              int* first, int max_first)
+    {
+        if (!written || !now || total <= 0)
+            return 0;
+        int n = 0;
+        for (int s = 0; s < total; ++s)
+        {
+            if (memcmp(written + s * 16, now + s * 16, sizeof(float) * 16) == 0)
+                continue;
+            if (first && n < max_first)
+                first[n] = s;
+            ++n;
+        }
+        return n;
+    }
+
+    int carry_highest_vertex_segment(const unsigned char* vertices,
+                                     int vertex_count)
+    {
+        int highest = -1;
+        if (!vertices)
+            return highest;
+        for (int i = 0; i < vertex_count; ++i)
+        {
+            short segment;
+            memcpy(&segment, vertices + i * 16 + 10, sizeof(segment));
+            if (segment > highest)
+                highest = segment;
+        }
+        return highest;
     }
 }

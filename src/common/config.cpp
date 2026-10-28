@@ -95,6 +95,7 @@ namespace trlvr
             { L"vr", L"god_arm_lead", L"1" },
             { L"vr", L"god_hang_arm", L"0" },
             { L"vr", L"god_arms_limp", L"0" },
+            { L"vr", L"god_carry_fix", L"1" },
             { L"vr", L"god_throw", L"1" },
             { L"vr", L"god_throw_strength", L"1" },
             { L"vr", L"god_throw_gravity", L"9.81" },
@@ -386,6 +387,10 @@ namespace trlvr
             L"god_hang_arm = 0\r\n"
             L"; live: god mode, 1 = her arms hang limp while she is held.\r\n"
             L"god_arms_limp = 0\r\n"
+            L"; live: god mode, 1 = carry every matrix of her draws, nested draws and\r\n"
+            L"; her controller-hand copies with her (the stretch fix). 0 = TRLVR\r\n"
+            L"; 1.1.0's carry, to compare.\r\n"
+            L"god_carry_fix = 1\r\n"
             L"; live: god mode, let go mid-swing and she flies off your hand, arcs and\r\n"
             L"; lands where she hits the level. 0 = always put down where you let go.\r\n"
             L"god_throw = 1\r\n"
@@ -1109,6 +1114,7 @@ namespace trlvr
             c.god_arm_lead = rb(L"god_arm_lead", true);
             c.god_hang_arm = rb(L"god_hang_arm", false);
             c.god_arms_limp = rb(L"god_arms_limp", false);
+            c.god_carry_fix = rb(L"god_carry_fix", true);
             c.god_throw = rb(L"god_throw", true);
             c.god_throw_strength =
                 rf(L"god_throw_strength", L"1", 0.2f, 3.0f, 1.0f);

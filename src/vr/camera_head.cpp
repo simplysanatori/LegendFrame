@@ -39,6 +39,7 @@
 #include "physics/body_volumes.h"
 #include "perf_cpu.h"
 #include "cull.h"
+#include "godmode/god_carry.h"
 #include "godmode/god_pluck.h"
 
 
@@ -825,12 +826,16 @@ namespace trlvr
         PFN_GetBoneVB g_get_bone_vb = nullptr;
         PFN_SetIndicesPtr g_set_indices_ptr = nullptr;
 
+        void carry_diag_bone_vb(void* const* vertices, const int* base,
+                                unsigned count);
+
         void __cdecl detour_get_bone_vb(void** vertices, int* base,
                                          unsigned count)
         {
             if (!g_get_bone_vb)
                 return;
             g_get_bone_vb(vertices, base, count);
+            carry_diag_bone_vb(vertices, base, count);
             if (g_current_hand_cpu_draw >= 0 &&
                 g_current_hand_cpu_draw < 2 && base && vertices &&
                 *vertices && *base >= 0 && count > 0 && count <= 65535)
@@ -11493,6 +11498,14 @@ namespace trlvr
             float full[kMaxSegments][16];
         };
 
+        // LegendFrame carry fix ([vr] god_carry_fix) and its diagnostics;
+        // defined with the DrawInstance hook below.
+        bool lara_is_drawn_lara(void* instance, void* model, void** out_model);
+        void carry_diag_open();
+        void carry_diag_model(void* model, int total, void* hers,
+                              int hers_total, int carried, bool fix);
+        void carry_unkeep_stale(float* matrices, int total);
+
         bool carry_apply(void* instance, void* model, CarrySave* save)
         {
             save->matrices = nullptr;
@@ -11531,11 +11544,49 @@ namespace trlvr
                     inst + kOffInstanceMatrices);
                 if (!m || !matrices)
                     return false;
-                const int total =
+                int total =
                     *reinterpret_cast<const int*>(m + kOffModelNumSegments) +
                     *reinterpret_cast<const int*>(m + kOffModelNumVirtSegments);
                 if (total <= 0 || total > kMaxSegments)
                     return false;
+                carry_diag_open();
+                const bool fix = config().god_carry_fix;
+                // Her instance drawn with another model (one passed to the
+                // draw, not her own): TRLVR 1.1.0 moved only that model's
+                // bones + blended joints. If her own model has more, the
+                // rest of the matrices -- which that draw's vertices may
+                // still read -- stayed at the pick-up spot. The fix carries
+                // (and poses on) her own model's full range then.
+                if (instance == lara)
+                {
+                    void* hers = nullptr;
+                    if (!lara_is_drawn_lara(instance, nullptr, &hers))
+                        hers = nullptr;
+                    if (hers && hers != m)
+                    {
+                        unsigned char* h = static_cast<unsigned char*>(hers);
+                        const int hers_total =
+                            *reinterpret_cast<const int*>(
+                                h + kOffModelNumSegments) +
+                            *reinterpret_cast<const int*>(
+                                h + kOffModelNumVirtSegments);
+                        const int range = carry_matrix_range(total,
+                            hers_total, kMaxSegments);
+                        carry_diag_model(m, total, hers, hers_total,
+                                         fix ? range : total, fix);
+                        if (fix && hers_total > total && range == hers_total)
+                        {
+                            m = h;
+                            total = hers_total;
+                        }
+                    }
+                    // The soft parts' and wall touch's kept writes from an
+                    // earlier frame (still there if the game has not
+                    // animated her since) go back before the snapshot, so
+                    // carry_restore puts back her own pose.
+                    if (fix)
+                        carry_unkeep_stale(matrices, total);
+                }
                 memcpy(save->full, matrices, sizeof(float) * 16 * total);
                 save->matrices = matrices;
                 save->total = total;
@@ -11636,7 +11687,33 @@ namespace trlvr
                     if (g_hip_model != m)
                     {
                         g_hip_model = m;
-                        find_hips(segments, count, g_pose_work.saved);
+                        // Two models drawn on her instance each frame took
+                        // turns here: the hips were found (and logged) on
+                        // every draw. With the fix, once per model.
+                        static struct { void* model; int hip[2]; }
+                            hips_seen[4] = {};
+                        static int hips_next = 0;
+                        int found = -1;
+                        if (fix)
+                            for (int i = 0; i < 4; ++i)
+                                if (hips_seen[i].model == m)
+                                    found = i;
+                        if (found >= 0)
+                        {
+                            g_hip[0] = hips_seen[found].hip[0];
+                            g_hip[1] = hips_seen[found].hip[1];
+                        }
+                        else
+                        {
+                            find_hips(segments, count, g_pose_work.saved);
+                            if (fix)
+                            {
+                                hips_seen[hips_next].model = m;
+                                hips_seen[hips_next].hip[0] = g_hip[0];
+                                hips_seen[hips_next].hip[1] = g_hip[1];
+                                hips_next = (hips_next + 1) % 4;
+                            }
+                        }
                     }
                     // Her arms first, on her own pose (procedural, as
                     // Underworld): a held arm raised straight up (she hangs
@@ -15347,6 +15424,325 @@ namespace trlvr
             }
         }
 
+        // ---- God-mode carry: the fix's save stack and the diagnostics ----
+        // ([vr] god_carry_fix; docs/INVESTIGATION-godmode-stretch.md.)
+        // A stack of saves: a draw nested inside a carried one gets its own
+        // (her linked gear drawn from inside her draw), and one whose
+        // matrices an outer draw has already carried is left as it is
+        // (carrying it again would move her twice and snapshot the moved
+        // pose). Upstream's single static save stays for god_carry_fix = 0.
+        const int kCarryStackDepth = 4;
+        CarrySave g_carry_stack[kCarryStackDepth];
+        int g_carry_depth = 0;
+
+        // Once per carry: the three investigation checks (A: her matrices
+        // changed inside the game's draw; B: a draw nested in a carried
+        // one; C: her model skinned again by the controller-hand copies),
+        // a line for another model drawn on her instance, and a summary
+        // when the carry ends.
+        struct CarryDiag
+        {
+            unsigned serial = 0;
+            unsigned last_frame = 0;
+            bool open = false;
+            bool fix = false;
+            bool told_rewrite = false, told_nested = false;
+            bool told_reskin = false;
+            int told_models = 0;
+            void* told_model[2] = {};
+            unsigned draws = 0, nested = 0, nested_carried = 0;
+            unsigned rewrites = 0, reskins = 0;
+            void* models[4] = {};
+            int model_count = 0;
+            // Bone VB allocations: 1 = inside her carried draw, 2 = inside
+            // her controller-hand copies.
+            int phase = 0;
+            int phase_total = 0;
+            unsigned vertex_count = 0;
+            unsigned body_frame = 0xFFFFFFFFu, hand_frame = 0xFFFFFFFFu;
+            const unsigned char* body_vb = nullptr;
+            const unsigned char* hand_vb = nullptr;
+            int body_base = 0, hand_base = 0;
+            unsigned body_count = 0, hand_count = 0;
+        };
+        CarryDiag g_carry_diag;
+        // What the outermost carried draw handed the game (diagnostic A).
+        float g_carry_written[kMaxSegments][16];
+
+        void carry_diag_close()
+        {
+            CarryDiag& d = g_carry_diag;
+            if (!d.open)
+                return;
+            d.open = false;
+            char models[96] = "";
+            int used = 0;
+            for (int i = 0; i < d.model_count && used < (int)sizeof(models) - 12;
+                 ++i)
+                used += snprintf(models + used, sizeof(models) - used, "%s%p",
+                                 i ? " " : "", d.models[i]);
+            log("carry #%u: ended -- %u carried draws, %u nested in a carried "
+                "draw (%u carried), %u with her matrices rewritten inside the "
+                "game's draw, %u hand-copy re-skins; models drawn on her "
+                "instance: %s", d.serial, d.draws, d.nested, d.nested_carried,
+                d.rewrites, d.reskins, used ? models : "-");
+        }
+
+        // A carried draw ended more than a frame ago: the carry is over.
+        void carry_diag_tick()
+        {
+            CarryDiag& d = g_carry_diag;
+            if (d.open && g_present_count - d.last_frame > 1)
+                carry_diag_close();
+        }
+
+        // From carry_apply, once it is going to carry this draw.
+        void carry_diag_open()
+        {
+            CarryDiag& d = g_carry_diag;
+            carry_diag_tick();
+            if (!d.open)
+            {
+                const unsigned serial = d.serial + 1;
+                d = CarryDiag();
+                d.serial = serial;
+                d.open = true;
+                d.fix = config().god_carry_fix;
+                log("carry #%u: started (god_carry_fix %d)", d.serial,
+                    d.fix ? 1 : 0);
+            }
+            d.last_frame = g_present_count;
+        }
+
+        void carry_diag_note_model(void* model)
+        {
+            CarryDiag& d = g_carry_diag;
+            if (!d.open || !model)
+                return;
+            for (int i = 0; i < d.model_count; ++i)
+                if (d.models[i] == model)
+                    return;
+            if (d.model_count < 4)
+                d.models[d.model_count++] = model;
+        }
+
+        // Her instance drawn with a model other than her own: its range,
+        // hers, and the highest segment its vertices use (measured once per
+        // model). Highest >= its own range is the stretch: those vertices
+        // read matrices the 1.1.0 carry did not move.
+        void carry_diag_model(void* model, int total, void* hers,
+                              int hers_total, int carried, bool fix)
+        {
+            CarryDiag& d = g_carry_diag;
+            carry_diag_note_model(model);
+            carry_diag_note_model(hers);
+            if (!d.open || d.told_models >= 2)
+                return;
+            for (int i = 0; i < d.told_models; ++i)
+                if (d.told_model[i] == model)
+                    return;
+            d.told_model[d.told_models++] = model;
+            static struct { void* model; int highest; } seen[8] = {};
+            static int seen_next = 0;
+            int highest = -2;
+            for (const auto& e : seen)
+                if (e.model == model)
+                    highest = e.highest;
+            if (highest == -2)
+            {
+                __try
+                {
+                    const unsigned char* m =
+                        static_cast<const unsigned char*>(model);
+                    const int n = *reinterpret_cast<const int*>(
+                        m + kOffModelNumVertices);
+                    const unsigned char* v =
+                        *reinterpret_cast<unsigned char* const*>(
+                            m + kOffModelVertices);
+                    highest = n > 0 && n <= 65535
+                        ? carry_highest_vertex_segment(v, n) : -1;
+                }
+                __except(EXCEPTION_EXECUTE_HANDLER)
+                {
+                    highest = -1;
+                }
+                seen[seen_next].model = model;
+                seen[seen_next].highest = highest;
+                seen_next = (seen_next + 1) % 8;
+            }
+            log("carry #%u: her instance drawn with model %p (%d matrices; its "
+                "vertices use segments up to %d) as well as hers %p (%d "
+                "matrices) -- %d carried%s", d.serial, model, total, highest,
+                hers, hers_total, carried,
+                highest >= carried ? " -- SOME OF ITS VERTICES STAY AT THE "
+                                     "PICK-UP SPOT"
+                : !fix && hers_total > total
+                    ? " (god_carry_fix 0)" : "");
+        }
+
+        // Diagnostic B: a draw that starts while a carried draw is running.
+        void carry_diag_nested(void* instance, void* model, const char* what,
+                               bool carried)
+        {
+            CarryDiag& d = g_carry_diag;
+            if (!d.open)
+                return;
+            ++d.nested;
+            if (carried)
+                ++d.nested_carried;
+            if (d.told_nested)
+                return;
+            d.told_nested = true;
+            log("carry #%u: nested draw of %s (instance %p, model %p) inside "
+                "a carried draw -- %s", d.serial, instance_name(instance),
+                instance, model, what);
+        }
+
+        // Diagnostic A, after the game's draw: what of her matrices is no
+        // longer what the carry handed it.
+        void carry_diag_after_draw(void* instance, void* model,
+                                   const float* matrices, int total)
+        {
+            CarryDiag& d = g_carry_diag;
+            if (!d.open || !matrices || total <= 0)
+                return;
+            int first[6] = { -1, -1, -1, -1, -1, -1 };
+            int n = 0;
+            __try
+            {
+                n = carry_count_rewritten(&g_carry_written[0][0], matrices,
+                                          total, first, 6);
+            }
+            __except(EXCEPTION_EXECUTE_HANDLER)
+            {
+                return;
+            }
+            if (!n)
+                return;
+            ++d.rewrites;
+            if (d.told_rewrite)
+                return;
+            d.told_rewrite = true;
+            log("carry #%u: %d of %d segments rewritten inside the game's draw "
+                "of %s (model %p); first %d %d %d %d %d %d", d.serial, n,
+                total, instance_name(instance), model, first[0], first[1],
+                first[2], first[3], first[4], first[5]);
+        }
+
+        // Diagnostic C, from the D3D_GetVB hook: the first full-model
+        // allocation of her carried draw and of her controller-hand copies
+        // in a frame; once both are seen, logged once a carry.
+        void carry_diag_bone_vb(void* const* vertices, const int* base,
+                                unsigned count)
+        {
+            CarryDiag& d = g_carry_diag;
+            if (!d.open || !d.phase || !vertices || !*vertices || !base ||
+                count != d.vertex_count || !count)
+                return;
+            const unsigned char* start =
+                static_cast<const unsigned char*>(*vertices) - *base * 24;
+            if (d.phase == 1 && d.body_frame != g_present_count)
+            {
+                d.body_frame = g_present_count;
+                d.body_vb = start;
+                d.body_base = *base;
+                d.body_count = count;
+            }
+            else if (d.phase == 2 && d.hand_frame != g_present_count)
+            {
+                d.hand_frame = g_present_count;
+                d.hand_vb = start;
+                d.hand_base = *base;
+                d.hand_count = count;
+                if (d.body_frame != g_present_count)
+                    return;
+                ++d.reskins;
+                if (d.told_reskin)
+                    return;
+                d.told_reskin = true;
+                const bool overlap = d.body_vb == d.hand_vb &&
+                    d.hand_base < d.body_base + (int)d.body_count &&
+                    d.body_base < d.hand_base + (int)d.hand_count;
+                log("carry #%u: bone VB re-skin during the carry -- her model "
+                    "skinned again by the controller-hand copies on the %s "
+                    "pose (body VB %p base %d count %u, hand copy VB %p base "
+                    "%d count %u%s)", d.serial,
+                    d.fix ? "carried" : "un-carried", d.body_vb, d.body_base,
+                    d.body_count, d.hand_vb, d.hand_base, d.hand_count,
+                    overlap ? ", OVERLAPPING the body's" : ", separate");
+            }
+        }
+
+        // Kept writes from an earlier frame back before a carry snapshots
+        // her matrices (as third_person_soft_frame and wall_touch_frame do
+        // at her first draw of a frame; a carried draw skips the latter).
+        void carry_unkeep_stale(float* matrices, int total)
+        {
+            __try
+            {
+                push_soft_unkeep(matrices, total);
+                WallTouchKeep& k = g_wall_keep;
+                if (k.active && k.frame != g_present_count)
+                {
+                    k.active = false;
+                    if (k.matrices == matrices && k.total <= total &&
+                        memcmp(matrices, k.written,
+                               sizeof(float) * 16 * k.total) == 0)
+                        memcpy(matrices, g_wall_base.full,
+                               sizeof(float) * 16 * k.total);
+                }
+            }
+            __except(EXCEPTION_EXECUTE_HANDLER)
+            {
+            }
+        }
+
+        // After carry_restore: the soft parts were sprung this frame on the
+        // carried pose and the restore took their writes away; their keep
+        // (base and written in carried space) no longer describes her
+        // matrices, so nothing may put it back later.
+        void carry_drop_soft_keep(const float* matrices)
+        {
+            ThirdPersonSoftKeep& k = g_tp_soft;
+            if (k.active && k.frame == g_present_count &&
+                k.matrices == matrices)
+                k.active = false;
+        }
+
+        float* carry_instance_matrices(void* instance)
+        {
+            __try
+            {
+                return instance ? *reinterpret_cast<float**>(
+                    static_cast<unsigned char*>(instance) +
+                    kOffInstanceMatrices) : nullptr;
+            }
+            __except(EXCEPTION_EXECUTE_HANDLER)
+            {
+                return nullptr;
+            }
+        }
+
+        unsigned carry_model_vertex_count(void* instance, void* model,
+                                          void** drawn)
+        {
+            *drawn = model;
+            __try
+            {
+                void* m = model;
+                if (!m && !lara_is_drawn_lara(instance, nullptr, &m))
+                    return 0;
+                *drawn = m;
+                const int n = m ? *reinterpret_cast<const int*>(
+                    static_cast<unsigned char*>(m) + kOffModelNumVertices) : 0;
+                return n > 0 && n <= 65535 ? (unsigned)n : 0;
+            }
+            __except(EXCEPTION_EXECUTE_HANDLER)
+            {
+                return 0;
+            }
+        }
+
         void __cdecl detour_draw_instance(void* instance, int a2, float a3, int a4, int a5, void* model, float a7, void* colour, void* transform)
         {
             // Lara (first-person hand/body passes) apart from the rest.
@@ -15385,12 +15781,59 @@ namespace trlvr
                     grip_prompt_follow_hand(instance, model);
                     pouch_note_game_draw(instance);
                 }
-                // One save, in use (non-null matrices) from carry_apply to
-                // carry_restore: a draw nested inside this one is not
-                // carried rather than overwrite it.
+                carry_diag_tick();
+                const bool fix = config().god_carry_fix;
+                // TRLVR 1.1.0 (god_carry_fix 0): one save, in use (non-null
+                // matrices) from carry_apply to carry_restore: a draw nested
+                // inside this one is not carried rather than overwrite it.
+                // The fix: the save stack above.
                 static CarrySave carry;
-                const bool carried = !carry.matrices &&
-                                     carry_apply(instance, model, &carry);
+                CarrySave* save = nullptr;
+                bool carried = false;    // this draw's matrices are carried
+                const bool in_carry = fix ? g_carry_depth > 0
+                                          : carry.matrices != nullptr;
+                const char* nested_what = nullptr;
+                if (fix)
+                {
+                    float* mats = carry_instance_matrices(instance);
+                    for (int i = 0; i < g_carry_depth && mats; ++i)
+                        if (g_carry_stack[i].matrices == mats)
+                            carried = true;
+                    if (carried)
+                        nested_what = "already carried (same matrices), "
+                                      "left as it is";
+                    else if (g_carry_depth < kCarryStackDepth)
+                    {
+                        CarrySave* s = &g_carry_stack[g_carry_depth];
+                        if (carry_apply(instance, model, s))
+                        {
+                            save = s;
+                            ++g_carry_depth;
+                            carried = true;
+                            nested_what = "carried with its own save";
+                        }
+                        else
+                            nested_what = "not carried (not her or her gear)";
+                    }
+                    else
+                        nested_what = "not carried (save stack full)";
+                }
+                else if (!carry.matrices)
+                {
+                    if (carry_apply(instance, model, &carry))
+                    {
+                        save = &carry;
+                        carried = true;
+                    }
+                }
+                else
+                    nested_what = carry_instance_matrices(instance) ==
+                                  carry.matrices
+                        ? "already carried (same matrices), not carried again"
+                        : "not carried (one save, god_carry_fix 0)";
+                if (in_carry && nested_what)
+                    carry_diag_nested(instance, model, nested_what,
+                                      save != nullptr);
                 if (!carried)
                     wall_touch_frame(instance, model);
                 // The whole-body push (free, board god hands), on the pose
@@ -15404,16 +15847,80 @@ namespace trlvr
                 // Her rear soft body, from her pose as drawn (after the
                 // carry, the push and the soft parts).
                 rear_soft_prepare(instance);
+                // The outermost carried draw: what the game is handed
+                // (diagnostic A) and her model's skinning (C).
+                const bool outer = save && !in_carry;
+                bool her = false;
+                if (outer)
+                {
+                    __try
+                    {
+                        her = instance ==
+                              *reinterpret_cast<void**>(kPlayerInstance);
+                        memcpy(g_carry_written, save->matrices,
+                               sizeof(float) * 16 * save->total);
+                    }
+                    __except(EXCEPTION_EXECUTE_HANDLER)
+                    {
+                    }
+                    ++g_carry_diag.draws;
+                    if (her)
+                    {
+                        void* drawn = nullptr;
+                        g_carry_diag.vertex_count =
+                            carry_model_vertex_count(instance, model, &drawn);
+                        carry_diag_note_model(drawn);
+                        g_carry_diag.phase = 1;
+                    }
+                }
                 g_draw_instance(instance, a2, a3, a4, a5, model, a7,
                                 colour, transform);
+                if (outer)
+                {
+                    g_carry_diag.phase = 0;
+                    carry_diag_after_draw(instance, model, save->matrices,
+                                          save->total);
+                }
                 push_restore(pushed);
-                if (carried)
-                    carry_restore(&carry);
+                if (fix)
+                {
+                    // The controller-hand copies skin her whole model again
+                    // (only the hand triangles are drawn): on the carried
+                    // pose, so that skin matches her body's. Their delta
+                    // takes each wrist to its controller from wherever it
+                    // is, so the hands land in the same place. Wall touch
+                    // is not posed while she is carried.
+                    if (!g_first_person_active)
+                    {
+                        if (!carried)
+                            wall_touch_swap(true);
+                        if (outer && her)
+                            g_carry_diag.phase = 2;
+                        third_person_draw_hands(instance, a2, a3, a4, a5,
+                                                model, a7, colour, transform);
+                        g_carry_diag.phase = 0;
+                        if (!carried)
+                            wall_touch_swap(false);
+                    }
+                    if (save)
+                    {
+                        float* restored = save->matrices;
+                        carry_restore(save);
+                        --g_carry_depth;
+                        carry_drop_soft_keep(restored);
+                    }
+                    return;
+                }
+                if (save)
+                    carry_restore(save);
                 if (!g_first_person_active)
                 {
                     wall_touch_swap(true);
+                    if (outer && her)
+                        g_carry_diag.phase = 2;
                     third_person_draw_hands(instance, a2, a3, a4, a5, model,
                                             a7, colour, transform);
+                    g_carry_diag.phase = 0;
                     wall_touch_swap(false);
                 }
                 return;

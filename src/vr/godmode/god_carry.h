@@ -34,6 +34,28 @@ namespace trlvr
     // units_per_metre: world_scale * the view's factor. The exact inverse of
     // placing a hand at that offset from the head. False if the camera does
     // not invert.
+    // How many of her instance's matrices a carried draw must move: every
+    // matrix any draw of the instance can read. A draw may pass a model
+    // whose own bones + blended joints (`drawn_total`) are fewer than her
+    // own model's (`hers_total`) while its vertices still use her layout;
+    // moving only the drawn model's range left the rest at the pick-up
+    // spot. The larger of the two, clipped to `limit`; 0 if neither is
+    // usable.
+    int carry_matrix_range(int drawn_total, int hers_total, int limit);
+
+    // Segments (4x4 float matrices, 16 floats each) whose `now` differs from
+    // `written` (bit for bit), of `total`. Up to `max_first` of their indices
+    // in `first` (may be null). The carry's check that the game did not
+    // rewrite part of her matrices inside its own draw.
+    int carry_count_rewritten(const float* written, const float* now, int total,
+                              int* first, int max_first);
+
+    // The highest segment index in a model's source vertices (16 bytes each,
+    // the segment a short at byte 10), -1 if none. Which matrices a draw of
+    // that model reads.
+    int carry_highest_vertex_segment(const unsigned char* vertices,
+                                     int vertex_count);
+
     bool world_to_head_frame(const Mat4& camera, const Mat4& head_view,
                              float units_per_metre, const float world[3],
                              float out[3]);

@@ -4,6 +4,36 @@
 static void test_god_carry()
 {
     using namespace trlvr;
+    // carry_matrix_range: the larger range wins, clipped; nothing usable is 0.
+    {
+        CHECK(carry_matrix_range(109, 221, 2048) == 221);
+        CHECK(carry_matrix_range(221, 109, 2048) == 221);
+        CHECK(carry_matrix_range(221, 0, 2048) == 221);
+        CHECK(carry_matrix_range(3000, 221, 2048) == 2048);
+        CHECK(carry_matrix_range(0, -1, 2048) == 0);
+    }
+    // carry_count_rewritten: only changed segments, the first few listed.
+    {
+        float a[4 * 16] = {}, b[4 * 16] = {};
+        CHECK(carry_count_rewritten(a, b, 4, nullptr, 0) == 0);
+        b[1 * 16 + 12] = 5.0f;
+        b[3 * 16 + 0] = -1.0f;
+        int first[1] = { -1 };
+        CHECK(carry_count_rewritten(a, b, 4, first, 1) == 2);
+        CHECK(first[0] == 1);
+        CHECK(carry_count_rewritten(a, b, 2, nullptr, 0) == 1);
+        CHECK(carry_count_rewritten(nullptr, b, 4, nullptr, 0) == 0);
+    }
+    // carry_highest_vertex_segment: the short at byte 10 of each 16.
+    {
+        unsigned char v[3 * 16] = {};
+        const short segs[3] = { 4, 220, 17 };
+        for (int i = 0; i < 3; ++i)
+            memcpy(v + i * 16 + 10, &segs[i], sizeof(short));
+        CHECK(carry_highest_vertex_segment(v, 3) == 220);
+        CHECK(carry_highest_vertex_segment(v, 1) == 4);
+        CHECK(carry_highest_vertex_segment(nullptr, 3) == -1);
+    }
     // rotation_about_point: the pivot stays, a point at +x turns about z.
     {
         const float from[3] = { 1, 0, 0 }, to[3] = { 0, 1, 0 };
