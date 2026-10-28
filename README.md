@@ -190,7 +190,7 @@ The mod is cross-built for 32-bit Windows (the game is 32-bit) with mingw in a p
 
 LegendFrame exists because of RototRobot's [Tomb-Raider-Legend-VR-Port](https://github.com/RototRobot/Tomb-Raider-Legend-VR-Port). If you want to support someone, support them first: star and follow it, report what you find there, and send improvements to the mod upstream.
 
-If you would like more Steam Frame ports, you can also [buy me a coffee](https://ko-fi.com/sana748653). It pays for the API credits these ports are built with, spent as carefully as I can.
+If you would like more Steam Frame ports, you can also [buy me a coffee](https://ko-fi.com/sana748653). It pays for the Claude API credits these ports are built with, spent as carefully as I can.
 
 ## Credits
 
