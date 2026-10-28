@@ -40,5 +40,64 @@ if [ "$MODE" = base ]; then
         -o "$OUT/mathtest")
     exec "$OUT/mathtest"
 fi
-echo "unknown mode '$MODE' (base | session)" >&2
-exit 2
+if [ "$MODE" != session ]; then
+    echo "unknown mode '$MODE' (base | session)" >&2
+    exit 2
+fi
+
+# Session suite: six copies of the session, each in its own namespace.
+OBJ="$OUT/session-obj"
+rm -rf "$OBJ"
+mkdir -p "$OBJ"
+REF=${REF:-steam-frame}
+REF_SRC="$SRC"
+REF_NOTE="this tree (REF=none)"
+if [ "$REF" != none ]; then
+    if git -C "$ROOT" rev-parse -q --verify "$REF^{commit}" >/dev/null; then
+        # Only the files under test come from the reference revision; every
+        # other header is this tree's, so struct layouts (Config!) match the
+        # stubs, which are built against this tree.
+        rm -rf "$OUT/ref"
+        mkdir -p "$OUT/ref/src"
+        cp -r "$SRC/vr" "$SRC/common" "$OUT/ref/src/"
+        for f in vr/vr_session.cpp vr/vr_session.h vr/vr_math.cpp vr/vr_math.h; do
+            git -C "$ROOT" show "$REF:src/$f" > "$OUT/ref/src/$f"
+        done
+        REF_SRC="$OUT/ref/src"
+        REF_NOTE="$REF ($(git -C "$ROOT" rev-parse --short "$REF"))"
+    else
+        echo "mathtest: no git revision '$REF'; reference = this tree" >&2
+    fi
+fi
+echo "session reference: $REF_NOTE"
+
+pids=()
+build_copy() {   # name, source root, extra defines...
+    local name=$1 root=$2
+    shift 2
+    local ns=(-Dtrlvr=trlvr_$name)
+    "$CXX" "${FLAGS[@]}" "${ns[@]}" -c "$root/vr/vr_session.cpp" \
+        -o "$OBJ/${name}_session.o" &
+    pids+=($!)
+    "$CXX" "${FLAGS[@]}" "${ns[@]}" -c "$root/vr/vr_math.cpp" \
+        -o "$OBJ/${name}_math.o" &
+    pids+=($!)
+    "$CXX" "${FLAGS[@]}" "${ns[@]}" -DMATHTEST_SESSION_STUBS \
+        -DMATHTEST_COPY=$name "$@" -c "$SRC/test/mathtest.cpp" \
+        -o "$OBJ/${name}_stubs.o" &
+    pids+=($!)
+}
+build_copy ref "$REF_SRC" -DMATHTEST_REFERENCE
+for c in s sc dn dc lg; do build_copy $c "$SRC"; done
+(cd "$SRC" && "$CXX" "${FLAGS[@]}" -DMATHTEST_SESSION -c test/mathtest.cpp \
+    -o "$OBJ/driver.o") &
+pids+=($!)
+for s in "${BASE_SRCS[@]}"; do
+    (cd "$SRC" && "$CXX" "${FLAGS[@]}" -c "$s" -o "$OBJ/base_$(basename "$s" .cpp).o") &
+    pids+=($!)
+done
+fail=0
+for p in "${pids[@]}"; do wait "$p" || fail=1; done
+[ $fail = 0 ] || { echo "mathtest: build failed" >&2; exit 1; }
+"$CXX" -o "$OUT/mathtest-session" "$OBJ"/*.o
+MATHTEST_OUT="$OUT/" exec "$OUT/mathtest-session"
