@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """LegendFrame: seed the Tomb Raider: Legend graphics registry values in a Wine user.reg.
 
-Usage: seed-registry.py USER_REG [--dry-run]
+Usage: seed-registry.py USER_REG [--dry-run] [--force]
 
-Sets EnableDepthOfField, EnableFullscreenEffects, EnableVSync, EnableShadows, EnableReflection,
-EnableWaterFX and Fullscreen to 0 in
+Seeds EnableDepthOfField, EnableFullscreenEffects, EnableVSync, EnableShadows, EnableReflection,
+EnableWaterFX and Fullscreen as 0 in
   [Software\\Crystal Dynamics\\Tomb Raider: Legend\\Graphics]
+Only values that are ABSENT are added: a value that already exists (for example Fullscreen=1) is
+left alone and listed. --force overwrites existing values too.
 The caller must make sure no Wine process is using the prefix. user.reg is backed up first and
-nothing is written when the values are already right.
+nothing is written when there is nothing to add.
 
 Exit status: 0 changed or already correct, 3 the Graphics section does not exist yet (run the
-game once), 2 other error. Prints one line saying what happened.
+game once), 2 other error. Prints what it added and what it left.
 """
 import os, re, shutil, sys, time
 
@@ -22,6 +24,7 @@ VALUES = ['EnableDepthOfField', 'EnableFullscreenEffects', 'EnableVSync', 'Enabl
 def main():
     args = [x for x in sys.argv[1:] if not x.startswith('--')]
     dry = '--dry-run' in sys.argv
+    force = '--force' in sys.argv
     if len(args) != 1:
         print(__doc__)
         return 2
@@ -43,6 +46,7 @@ def main():
     while insert_at > start + 1 and lines[insert_at - 1].strip() == '':
         insert_at -= 1
     changed = []
+    left = []
     for name in VALUES:
         want = '"%s"=dword:00000000' % name
         idx = next((i for i in range(start + 1, end) if lines[i].startswith('"%s"=' % name)), None)
@@ -52,10 +56,15 @@ def main():
             end += 1
             changed.append(name)
         elif lines[idx] != want:
-            lines[idx] = want
-            changed.append(name)
+            if force:
+                lines[idx] = want
+                changed.append(name)
+            else:
+                left.append('%s (%s)' % (name, lines[idx].split('=', 1)[1]))
+    if left:
+        print('registry: existing values left as they are: ' + ' '.join(left))
     if not changed:
-        print('registry already seeded')
+        print('registry already seeded' if not left else 'registry: nothing to add')
         return 0
     if dry:
         print('would set: ' + ' '.join(changed))

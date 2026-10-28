@@ -11,10 +11,23 @@
 #   --steam-dir DIR     Steam root (default ~/.local/share/Steam)
 #   --game-dir DIR      the game folder, instead of looking it up from appmanifest_7000.acf
 #   --userid N          Steam user id, when more than one account has logged in on this Frame
-#   --with-openxr       also copy openxr_loader.dll if the payload has it (not used on the Frame)
+#   --check             print the installed LegendFrame version and exit (changes nothing)
+#   --without-openxr    do not copy openxr_loader.dll (it is copied by default: the mingw-built
+#                       d3d9.dll imports it statically, so the game will not start without it)
+#   --vrsettings "refresh=72,res=1440"
+#                       SET the per-app SteamVR refresh rate / resolution to these values, even if
+#                       the owner already has others. Without this option only values that are
+#                       absent are written (72 Hz / 1440); existing ones are kept and printed.
 #   --edit-vrsettings   when SteamVR is not running, write the per-app SteamVR settings straight
 #                       into steamvr.vrsettings instead of only printing how
+#   --force-registry    overwrite the game registry values even if they already exist
+#                       (default: only values that are absent are seeded)
 #   --no-registry | --no-vrsettings | --no-shortcut     skip that step
+#
+# The payload must contain d3d9.dll, d3d9_dxvk.dll, openvr_api.dll (from the upstream TRLVR
+# release zip), trlvr_launcher.exe, trlvr_actions.json and bindings_*.json; openxr_loader.dll and
+# VERSION are optional (VERSION is copied into the game folder as .legendframe-version).
+# --check prints the installed version marker and exits without changing anything.
 #   -h, --help
 set -euo pipefail
 
@@ -24,11 +37,15 @@ STEAM_DIR="$HOME/.local/share/Steam"
 PAYLOAD=""
 GAME=""
 USERID=""
-WITH_OPENXR=0 EDIT_VRSETTINGS=0 DO_REGISTRY=1 DO_VRSETTINGS=1 DO_SHORTCUT=1
-VRCMD=/opt/steamvr/bin/linuxarm64/vrcmd
+WITH_OPENXR=1 EDIT_VRSETTINGS=0 DO_REGISTRY=1 DO_VRSETTINGS=1 DO_SHORTCUT=1 FORCE_REGISTRY=0 CHECK=0
+VR_REFRESH=72 VR_RES=1440 VR_FORCE=0
+REG_ARGS=()
+VRSERVER="${LEGENDFRAME_VRSERVER:-vrserver}"   # env overrides (this and LEGENDFRAME_VRCMD) are for tests
+VRCMD="${LEGENDFRAME_VRCMD:-/opt/steamvr/bin/linuxarm64/vrcmd}"
 SCRIPT_HOME="$HOME/.local/share/legendframe/shortcut"
 DROPIN_DIR="$HOME/.config/systemd/user/steam.service.d"
 REQUIRED=(d3d9.dll d3d9_dxvk.dll openvr_api.dll trlvr_launcher.exe trlvr_actions.json)
+VERSION_FILE=.legendframe-version
 
 say()  { printf '%s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
@@ -42,7 +59,20 @@ while [ $# -gt 0 ]; do
     --steam-dir) STEAM_DIR="${2:?}"; shift 2 ;;
     --game-dir) GAME="${2:?}"; shift 2 ;;
     --userid) USERID="${2:?}"; shift 2 ;;
-    --with-openxr) WITH_OPENXR=1; shift ;;
+    --without-openxr) WITH_OPENXR=0; shift ;;
+    --vrsettings)
+      v="${2:?}"; shift 2
+      VR_FORCE=1; IFS=',' read -r -a kv <<< "$v"
+      for p in "${kv[@]}"; do
+        case "$p" in
+          refresh=[0-9]*) VR_REFRESH="${p#refresh=}" ;;
+          res=[0-9]*) VR_RES="${p#res=}" ;;
+          *) die "bad --vrsettings entry: $p (use refresh=72,res=1440)" ;;
+        esac
+      done
+      case "$VR_REFRESH$VR_RES" in *[!0-9]*) die "bad --vrsettings value: $v" ;; esac ;;
+    --force-registry) FORCE_REGISTRY=1; REG_ARGS+=(--force); shift ;;
+    --check) CHECK=1; shift ;;
     --edit-vrsettings) EDIT_VRSETTINGS=1; shift ;;
     --no-registry) DO_REGISTRY=0; shift ;;
     --no-vrsettings) DO_VRSETTINGS=0; shift ;;
@@ -53,30 +83,42 @@ while [ $# -gt 0 ]; do
 done
 
 # --- 0. the game must not be running --------------------------------------------------------
-if pgrep trl_vr >/dev/null 2>&1; then
+if [ "$CHECK" = 0 ] && pgrep trl_vr >/dev/null 2>&1; then
   die "Tomb Raider: Legend VR is running (trl_vr). Quit the game and run this again."
 fi
 
 # --- 1. payload -----------------------------------------------------------------------------
-if [ -z "$PAYLOAD" ]; then
-  for d in "$SELF_DIR/dist" "$SELF_DIR/../dist"; do
-    if [ -f "$d/d3d9.dll" ]; then PAYLOAD="$d"; break; fi
+if [ "$CHECK" = 0 ]; then
+  if [ -z "$PAYLOAD" ]; then
+    for d in "$SELF_DIR/dist" "$SELF_DIR/../dist"; do
+      if [ -f "$d/d3d9.dll" ]; then PAYLOAD="$d"; break; fi
+    done
+    [ -n "$PAYLOAD" ] || die "no payload found. Build first (see toolchain/) or pass --payload DIR (looked in $SELF_DIR/dist and $SELF_DIR/../dist)."
+  fi
+  [ -d "$PAYLOAD" ] || die "payload folder not found: $PAYLOAD"
+  PAYLOAD="$(cd "$PAYLOAD" && pwd)"
+  for f in "${REQUIRED[@]}"; do
+    if [ -f "$PAYLOAD/$f" ]; then continue; fi
+    if [ "$f" = openvr_api.dll ]; then
+      die "payload is missing openvr_api.dll ($PAYLOAD). It is not built here: copy it from the upstream TRLVR release zip (RototRobot, TRLVR 1.0.0) into the payload folder."
+    fi
+    die "payload is missing $f ($PAYLOAD)"
   done
-  [ -n "$PAYLOAD" ] || die "no payload found. Build first (see toolchain/) or pass --payload DIR (looked in $SELF_DIR/dist and $SELF_DIR/../dist)."
-fi
-[ -d "$PAYLOAD" ] || die "payload folder not found: $PAYLOAD"
-PAYLOAD="$(cd "$PAYLOAD" && pwd)"
-for f in "${REQUIRED[@]}"; do
-  [ -f "$PAYLOAD/$f" ] || die "payload is missing $f ($PAYLOAD)"
-done
-shopt -s nullglob
-BINDINGS=("$PAYLOAD"/bindings_*.json)
-shopt -u nullglob
-[ ${#BINDINGS[@]} -gt 0 ] || die "payload has no bindings_*.json ($PAYLOAD)"
-FILES=("${REQUIRED[@]}")
-for b in "${BINDINGS[@]}"; do FILES+=("$(basename "$b")"); done
-if [ "$WITH_OPENXR" = 1 ]; then
-  [ -f "$PAYLOAD/openxr_loader.dll" ] && FILES+=(openxr_loader.dll) || warn "--with-openxr given but the payload has no openxr_loader.dll"
+  shopt -s nullglob
+  BINDINGS=("$PAYLOAD"/bindings_*.json)
+  shopt -u nullglob
+  [ ${#BINDINGS[@]} -gt 0 ] || die "payload has no bindings_*.json ($PAYLOAD)"
+  FILES=("${REQUIRED[@]}")
+  for b in "${BINDINGS[@]}"; do FILES+=("$(basename "$b")"); done
+  if [ "$WITH_OPENXR" = 1 ]; then
+    if [ -f "$PAYLOAD/openxr_loader.dll" ]; then FILES+=(openxr_loader.dll)
+    else warn "the payload has no openxr_loader.dll; a mingw-built d3d9.dll will not load without it (--without-openxr silences this)"; fi
+  fi
+  PAYLOAD_VERSION=unknown
+  if [ -f "$PAYLOAD/VERSION" ]; then
+    PAYLOAD_VERSION="$(head -n1 "$PAYLOAD/VERSION" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    [ -n "$PAYLOAD_VERSION" ] || PAYLOAD_VERSION=unknown
+  fi
 fi
 
 # --- 2. find the game -----------------------------------------------------------------------
@@ -97,6 +139,12 @@ GAME="$(cd "$GAME" && pwd)"
 LIBRARY="$(dirname "$(dirname "$GAME")")"      # .../steamapps
 PREFIX="$LIBRARY/compatdata/$APPID/pfx"
 say "Game folder: $GAME"
+if [ "$CHECK" = 1 ]; then
+  if [ -f "$GAME/$VERSION_FILE" ]; then say "LegendFrame installed: $(head -n1 "$GAME/$VERSION_FILE")"
+  elif [ -f "$GAME/.legendframe-files.txt" ]; then say "LegendFrame installed: unknown version (installed before version markers)"
+  else say "LegendFrame is not installed in this game folder."; fi
+  exit 0
+fi
 say "Payload:     $PAYLOAD"
 
 # --- 3. back up, copy, manifest -------------------------------------------------------------
@@ -131,21 +179,55 @@ for f in "${FILES[@]}"; do
 done
 
 # --- 4. trlvr.ini defaults for the Frame ----------------------------------------------------
+# Only keys that are absent are added (under [vr]); existing keys and every other line stay as
+# they are, including CRLF line endings and a UTF-8 BOM.
+INI_NEW=0
 if [ ! -e "$GAME/trlvr.ini" ]; then
-  cat > "$GAME/trlvr.ini" <<'INI'
-; Seeded by LegendFrame (frame/install.sh) with Steam Frame defaults.
-; The mod adds every other setting, with its explanation, the first time it runs.
-[vr]
-fsaa=off
-msaa=2
-comfort_vignette=off
-cull_fov_degrees=110
-INI
-  SEEDED_INI=1
-  say "Seeded trlvr.ini (fsaa=off, msaa=2, comfort_vignette=off, cull_fov_degrees=110)"
-else
-  say "trlvr.ini already exists; left as it is."
+  printf '; Seeded by LegendFrame (frame/install.sh) with Steam Frame defaults.\n; The mod adds every other setting, with its explanation, the first time it runs.\n[vr]\n' > "$GAME/trlvr.ini"
+  INI_NEW=1 SEEDED_INI=1
 fi
+python3 -I - "$GAME/trlvr.ini" <<'PY' || warn "could not seed trlvr.ini"
+import os, sys
+path = sys.argv[1]
+WANT = [("fsaa", "off"), ("msaa", "2"), ("comfort_vignette", "off"), ("cull_fov_degrees", "110"),
+        ("stereo_mode", "singlepass"), ("stereo_stats", "0"), ("vr_runtime", "openvr"),
+        ("submit_wait", "0"), ("god_carry_fix", "1"), ("hud_offset_x", "0"), ("hud_offset_y", "0")]
+raw = open(path, "r", encoding="utf-8", errors="surrogateescape", newline="").read()
+eol = "\r" if "\r\n" in raw else ""
+lines = raw.split("\n")          # lines keep their own \r, so untouched lines stay byte-identical
+def sec(l):
+    l = l.lstrip("\ufeff").strip()
+    return l[1:l.index("]")].strip().lower() if l.startswith("[") and "]" in l else None
+start = next((i for i, l in enumerate(lines) if sec(l) == "vr"), None)
+if start is None:
+    while lines and lines[-1] in ("", "\r"): lines.pop()
+    lines += ["[vr]" + eol, ""]; start = len(lines) - 2
+end = start + 1
+while end < len(lines) and sec(lines[end]) is None: end += 1
+have = {}
+for l in lines[start + 1:end]:
+    t = l.strip()
+    if t and t[0] not in ";#" and "=" in t:
+        have[t.split("=", 1)[0].strip().lower()] = t.split("=", 1)[1].strip()
+ins = end
+while ins > start + 1 and lines[ins - 1].strip() == "": ins -= 1
+if ins == len(lines) and lines[-1] != "": lines.append("")   # no newline at end of file
+added, kept = [], []
+for k, v in WANT:
+    if k in have: kept.append("%s=%s" % (k, have[k]))
+    else:
+        lines.insert(ins, "%s=%s%s" % (k, v, eol)); ins += 1; added.append("%s=%s" % (k, v))
+if added:
+    out = "\n".join(lines)
+    tmp = path + ".legendframe-tmp"
+    open(tmp, "w", encoding="utf-8", errors="surrogateescape", newline="").write(out)
+    os.replace(tmp, path)
+print("trlvr.ini: added " + (", ".join(added) if added else "nothing (all Frame keys already present)"))
+if kept: print("trlvr.ini: kept existing " + ", ".join(kept))
+PY
+
+printf '%s\n' "$PAYLOAD_VERSION" > "$GAME/$VERSION_FILE"
+say "Version marker: $GAME/$VERSION_FILE ($PAYLOAD_VERSION)"
 
 {
   echo "# LegendFrame install manifest. Written by frame/install.sh; read by frame/uninstall.sh."
@@ -173,7 +255,7 @@ if [ "$DO_REGISTRY" = 1 ]; then
     say "Registry: skipped, a Wine process is using the Tomb Raider: Legend prefix. Quit it and run this again."
   else
     rc=0
-    python3 -I "$SELF_DIR/seed-registry.py" "$USERREG" || rc=$?
+    python3 -I "$SELF_DIR/seed-registry.py" "$USERREG" "${REG_ARGS[@]+"${REG_ARGS[@]}"}" || rc=$?
     if [ "$rc" = 3 ]; then
       say "  Run the game once from the Steam store entry (the Setup dialog writes the section), quit, and run this installer again."
     elif [ "$rc" != 0 ]; then
@@ -183,37 +265,57 @@ if [ "$DO_REGISTRY" = 1 ]; then
 fi
 
 # --- 6. SteamVR per-app settings ------------------------------------------------------------
+# Values that already exist are kept (the owner may have a higher resolution override);
+# --vrsettings "refresh=N,res=N" sets them regardless.
 manual_vrsettings() {
-  say "  Set them by hand: SteamVR Settings > Video > per-application (Tomb Raider: Legend): refresh 72 Hz, resolution 1440;"
+  say "  Set them by hand: SteamVR Settings > Video > per-application (Tomb Raider: Legend): refresh $VR_REFRESH Hz, resolution $VR_RES;"
   say "  or, with SteamVR closed, add to ~/.config/openvr/config/steamvr.vrsettings:"
-  say "    \"steam.app.$APPID\" : { \"preferredRefreshRate\" : 72, \"resolutionOverride\" : 1440 }"
-  say "  or, with SteamVR running: $VRCMD --set-settings-int steam.app.$APPID.preferredRefreshRate 72"
-  say "                            $VRCMD --set-settings-int steam.app.$APPID.resolutionOverride 1440"
+  say "    \"steam.app.$APPID\" : { \"preferredRefreshRate\" : $VR_REFRESH, \"resolutionOverride\" : $VR_RES }"
+  say "  or, with SteamVR running: $VRCMD --set-settings-int steam.app.$APPID.preferredRefreshRate $VR_REFRESH"
+  say "                            $VRCMD --set-settings-int steam.app.$APPID.resolutionOverride $VR_RES"
 }
+vr_get() { timeout 15 "$VRCMD" --settings-int "steam.app.$APPID.$1" 2>/dev/null | sed -n 's/^[^=]*=//p' | head -n1; }
 if [ "$DO_VRSETTINGS" = 1 ]; then
-  if [ -x "$VRCMD" ] && pgrep -x vrserver >/dev/null 2>&1; then
-    if timeout 15 "$VRCMD" --set-settings-int "steam.app.$APPID.preferredRefreshRate" 72 >/dev/null 2>&1 &&
-       timeout 15 "$VRCMD" --set-settings-int "steam.app.$APPID.resolutionOverride" 1440 >/dev/null 2>&1; then
-      say "SteamVR: per-app settings set live (72 Hz, resolution 1440)."
-    else
-      warn "vrcmd failed"; manual_vrsettings
-    fi
-  elif [ "$EDIT_VRSETTINGS" = 1 ] && ! pgrep -x vrserver >/dev/null 2>&1; then
-    python3 -I - "$HOME/.config/openvr/config/steamvr.vrsettings" "steam.app.$APPID" <<'PY' || manual_vrsettings
+  if [ -x "$VRCMD" ] && pgrep -x "$VRSERVER" >/dev/null 2>&1; then
+    vr_ok=1
+    for kv in "preferredRefreshRate:$VR_REFRESH" "resolutionOverride:$VR_RES"; do
+      k="${kv%%:*}" v="${kv#*:}"
+      cur="$(vr_get "$k")"
+      if [ -n "$cur" ] && [ "$VR_FORCE" = 0 ]; then
+        say "SteamVR: steam.app.$APPID.$k is $cur; kept (--vrsettings forces a value)."
+      elif [ -n "$cur" ] && [ "$cur" = "$v" ]; then
+        say "SteamVR: steam.app.$APPID.$k is already $v."
+      elif timeout 15 "$VRCMD" --set-settings-int "steam.app.$APPID.$k" "$v" >/dev/null 2>&1; then
+        say "SteamVR: steam.app.$APPID.$k set to $v${cur:+ (was $cur)}."
+      else
+        vr_ok=0
+      fi
+    done
+    [ "$vr_ok" = 1 ] || { warn "vrcmd failed"; manual_vrsettings; }
+  elif [ "$EDIT_VRSETTINGS" = 1 ] && ! pgrep -x "$VRSERVER" >/dev/null 2>&1; then
+    python3 -I - "$HOME/.config/openvr/config/steamvr.vrsettings" "steam.app.$APPID" "$VR_REFRESH" "$VR_RES" "$VR_FORCE" <<'PY' || manual_vrsettings
 import json, os, shutil, sys, time
-p, sec = sys.argv[1], sys.argv[2]
+p, sec, refresh, res, force = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), sys.argv[5] == "1"
 if not os.path.isfile(p):
     print("  no steamvr.vrsettings yet (start SteamVR once)"); sys.exit(1)
 d = json.load(open(p, encoding="utf-8"))
 s = d.get(sec) if isinstance(d.get(sec), dict) else {}
-want = {"preferredRefreshRate": 72, "resolutionOverride": 1440}
-if all(s.get(k) == v for k, v in want.items()):
-    print("SteamVR: per-app settings already in steamvr.vrsettings."); sys.exit(0)
+want = {"preferredRefreshRate": refresh, "resolutionOverride": res}
+change = {}
+for k, v in want.items():
+    if k in s and not force:
+        print("SteamVR: %s.%s is %s; kept (--vrsettings forces a value)." % (sec, k, s[k]))
+    elif s.get(k) == v:
+        print("SteamVR: %s.%s is already %s." % (sec, k, v))
+    else:
+        change[k] = v
+if not change:
+    sys.exit(0)
 shutil.copy2(p, p + ".legendframe-bak-" + time.strftime("%Y%m%d-%H%M%S"))
-s.update(want); d[sec] = s
+s.update(change); d[sec] = s
 json.dump(d, open(p + ".tmp", "w", encoding="utf-8"), indent=3)
 os.replace(p + ".tmp", p)
-print("SteamVR: per-app settings written to steamvr.vrsettings (72 Hz, resolution 1440).")
+print("SteamVR: wrote %s to steamvr.vrsettings." % ", ".join("%s=%s" % kv for kv in change.items()))
 PY
   else
     say "SteamVR: not running (or vrcmd missing), so the per-app settings were not set."
