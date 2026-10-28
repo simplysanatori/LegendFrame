@@ -69,6 +69,37 @@ Left trackpad click         Pause (Escape)
 Right trackpad click        Use binoculars (Page Down)
 
 
+STEAM FRAME CONTROLLERS
+-----------------------
+Supplied as bindings_frame_controller.json (SteamVR controller type
+frame_controller), so SteamVR no longer converts the Oculus Touch binding.
+It is the same layout as the Oculus Touch one above, on the Frame's
+buttons:
+
+Left thumbstick             Move Lara; click = same as Oculus Touch
+Right thumbstick            Turn the camera; click = same as Oculus Touch
+Left / right trigger        As Oculus Touch (action / fire)
+Left / right grip           As Oculus Touch (throw grapple / lock-on)
+Right A                     Jump / surface; menu select
+Right B (also X and Y)      Dive; menu back
+Left D-pad down             Accurate/free aim (Oculus X)
+Left D-pad up/left/right    Grenade / flare, long press personal light
+                            (Oculus Y)
+Left MENU (view) button     Pause (a tap); hold to open the settings
+                            panel. This is the Frame's left "view" button
+                            (the small button on the left controller), which
+                            replaces the Touch left menu button. The Frame's
+                            system button always opens the SteamVR dashboard
+                            and is never bound. The right menu button and
+                            the bumpers are not bound.
+
+Left stick double click recentres the view, as on every other controller.
+The other headsets keep their own bindings; nothing else changed.
+If the buttons do nothing, open SteamVR > Settings > Controllers > Manage
+Controller Bindings and select the supplied Tomb Raider: Legend VR binding
+for the Steam Frame controller.
+
+
 ORIGINAL WINDOWS MIXED REALITY CONTROLLERS
 ------------------------------------------
 Left joystick               Move Lara (W / A / S / D)

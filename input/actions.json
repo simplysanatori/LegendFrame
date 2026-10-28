@@ -15,6 +15,10 @@
     {
       "controller_type": "holographic_controller",
       "binding_url": "bindings_holographic_controller.json"
+    },
+    {
+      "controller_type": "frame_controller",
+      "binding_url": "bindings_frame_controller.json"
     }
   ],
   "actions": [
