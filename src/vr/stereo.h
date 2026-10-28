@@ -31,4 +31,17 @@ namespace trlvr
 
     // Put the viewport and the constants back.
     void stereo_end_draw(IDirect3DDevice9* device);
+
+    // --- Single-pass stereo (LegendFrame SPS-VI, docs/DESIGN.md 3.1, 5.2) ---
+    //
+    // Live switch between single-pass and two-pass ([vr] stereo_mode is the
+    // start value). Call on the render thread between frames (the Shift+F6
+    // hotkey and the settings panel, tune.cpp / overlay.cpp). It logs
+    // "stereo: live toggle -> single-pass|two-pass (Shift+F6)" itself.
+    // Turning it on only takes if DXVK enabled single-pass at CreateDevice
+    // ([vr] stereo_mode = singlepass at start); otherwise it stays two-pass
+    // and says so in the log.
+    void stereo_set_single_pass(bool on);
+    // Scene draws are currently going out single-pass where eligible.
+    bool stereo_single_pass_active();
 }

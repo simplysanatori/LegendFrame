@@ -155,4 +155,15 @@ namespace trlvr
             g_saved_viewport = false;
         }
     }
+
+    // Single-pass stereo is not wired up yet (M3-P): the switch exists so
+    // the hotkey and the settings panel can be built against it.
+    void stereo_set_single_pass(bool)
+    {
+    }
+
+    bool stereo_single_pass_active()
+    {
+        return false;
+    }
 }
