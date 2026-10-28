@@ -115,3 +115,6 @@ subset of its vertices. *Fix:* apply the same mask in the static path.
    happens in both, the cause is the game's matrix rebuild (A), not the posing code.
 4. Set `[vr] body_rear=0`, then `body_soft=0`, then `body_push=0`, one at a time (D).
 5. Next build: add the A, B and C log lines (one-shot each, cheap) and repeat one carry.
+
+
+Update (lane/sps-def-fix): cause E was investigated and fixed differently: the static path already folds def'd registers, but getStereoDynamicBankMask() compared srcIndex instead of dstIndex, so a relative read (c[a0.x+N]) landing on a def'd c0..c3 register was replaced by the per-eye bank. Fixed in 5ef1383 with harness case `defconst`.
