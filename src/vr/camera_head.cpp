@@ -11503,7 +11503,8 @@ namespace trlvr
         bool lara_is_drawn_lara(void* instance, void* model, void** out_model);
         void carry_diag_open();
         void carry_diag_model(void* model, int total, void* hers,
-                              int hers_total, int carried, bool fix);
+                              int hers_total, int carried, bool fix,
+                              const float* matrices);
         void carry_unkeep_stale(float* matrices, int total);
 
         bool carry_apply(void* instance, void* model, CarrySave* save)
@@ -11573,7 +11574,7 @@ namespace trlvr
                         const int range = carry_matrix_range(total,
                             hers_total, kMaxSegments);
                         carry_diag_model(m, total, hers, hers_total,
-                                         fix ? range : total, fix);
+                                         fix ? range : total, fix, matrices);
                         if (fix && hers_total > total && range == hers_total)
                         {
                             m = h;
@@ -15452,6 +15453,7 @@ namespace trlvr
             void* told_model[2] = {};
             unsigned draws = 0, nested = 0, nested_carried = 0;
             unsigned rewrites = 0, reskins = 0;
+            unsigned wet_rebuilds = 0, wet_failed = 0;
             void* models[4] = {};
             int model_count = 0;
             // Bone VB allocations: 1 = inside her carried draw, 2 = inside
@@ -15483,9 +15485,11 @@ namespace trlvr
                                  i ? " " : "", d.models[i]);
             log("carry #%u: ended -- %u carried draws, %u nested in a carried "
                 "draw (%u carried), %u with her matrices rewritten inside the "
-                "game's draw, %u hand-copy re-skins; models drawn on her "
-                "instance: %s", d.serial, d.draws, d.nested, d.nested_carried,
-                d.rewrites, d.reskins, used ? models : "-");
+                "game's draw, %u hand-copy re-skins, %u wet/dirty blend "
+                "arrays rebuilt on the carried pose (%u failed); models drawn "
+                "on her instance: %s", d.serial, d.draws, d.nested,
+                d.nested_carried, d.rewrites, d.reskins, d.wet_rebuilds,
+                d.wet_failed, used ? models : "-");
         }
 
         // A carried draw ended more than a frame ago: the carry is over.
@@ -15526,12 +15530,95 @@ namespace trlvr
                 d.models[d.model_count++] = model;
         }
 
+        // ---- The wet/dirty overlay (owner's 0.1.3 log, carries #5/#6) ----
+        // Once she is wet or dirty (after the waterfall cutscene, after a
+        // fight) FX_WetDirtyDraw (0x0044C2A0) draws an overlay model on her
+        // instance (152 matrices: her real segments + its own blended
+        // joints). Before calling DRAW_DrawInstance it blends those joints
+        // with FX_WetDirtyBuildVirtualTransforms (0x0044C1F0) from
+        // instance+0x80 into its own array, and passes that array as the
+        // draw's `transform`. InstanceDraw (0x00408CC0, the loop at
+        // 0x00409340) skins segments below the model's real count from
+        // instance+0x80 and the rest from `transform`
+        // (carry_segment_source). The carry moves instance+0x80 inside the
+        // draw, after the blend was made: the overlay's joint vertices
+        // (belt, boots, shirt seams) stayed at the pick-up spot. No skinned
+        // vertex cache or dirty flags are involved: every draw skins afresh
+        // into a new D3D_GetVB range. The fix runs the game's own builder
+        // again on her pose as drawn (carried, pushed, soft parts), right
+        // before the game's draw. Nothing else reads the array (only
+        // FX_StartWetDirty and the level setup at 0x00435D94 store it).
+        const uintptr_t kFxWetDirtyBuildVirtual = 0x0044C1F0;
+        // sub esp,8 / push ebx / mov ebx,[esp+0x18]
+        const unsigned char kFxWetDirtyBuildVirtualSignature[8] =
+            { 0x83, 0xEC, 0x08, 0x53, 0x8B, 0x5C, 0x24, 0x18 };
+        const uintptr_t kFxWetDirtyModel = 0x0107F724;      // overlay Model*
+        const uintptr_t kFxWetDirtyTransforms = 0x0107F730; // its blend array
+        using PFN_WetDirtyBuildVirtual = void(__cdecl*)(void* instance,
+                                                        void* model,
+                                                        void* out);
+
+        // The current DrawInstance call's `transform` and whether it is the
+        // wet/dirty blend array (for carry_apply's diagnostics).
+        void* g_carry_draw_transform = nullptr;
+        bool g_carry_draw_wet = false;
+
+        bool wet_dirty_draw(void* instance, void* model, void* transform)
+        {
+            static int signature_ok = -1;
+            if (!instance || !model || !transform || !signature_ok)
+                return false;
+            __try
+            {
+                if (signature_ok < 0)
+                {
+                    signature_ok = memcmp(
+                        reinterpret_cast<const void*>(kFxWetDirtyBuildVirtual),
+                        kFxWetDirtyBuildVirtualSignature,
+                        sizeof(kFxWetDirtyBuildVirtualSignature)) == 0 ? 1 : 0;
+                    if (!signature_ok)
+                    {
+                        log("carry: FX_WetDirtyBuildVirtualTransforms not "
+                            "found at %08X; the wet/dirty overlay is not "
+                            "re-blended on the carried pose",
+                            (unsigned)kFxWetDirtyBuildVirtual);
+                        return false;
+                    }
+                }
+                return *reinterpret_cast<void**>(kFxWetDirtyModel) == model &&
+                       *reinterpret_cast<void**>(kFxWetDirtyTransforms) ==
+                           transform;
+            }
+            __except(EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
+        bool wet_dirty_rebuild(void* instance, void* model, void* transform)
+        {
+            __try
+            {
+                reinterpret_cast<PFN_WetDirtyBuildVirtual>(
+                    kFxWetDirtyBuildVirtual)(instance, model, transform);
+                return true;
+            }
+            __except(EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
         // Her instance drawn with a model other than her own: its range,
-        // hers, and the highest segment its vertices use (measured once per
-        // model). Highest >= its own range is the stretch: those vertices
-        // read matrices the 1.1.0 carry did not move.
+        // hers, the highest segment its vertices use (measured once per
+        // model), and which matrix array each part of it is skinned from
+        // (carry_segment_source): her instance matrices, carried up to
+        // `carried`, and for a draw with a transform array (the wet/dirty
+        // overlay) its blended joints from that array, carried only if the
+        // fix re-blends it.
         void carry_diag_model(void* model, int total, void* hers,
-                              int hers_total, int carried, bool fix)
+                              int hers_total, int carried, bool fix,
+                              const float* matrices)
         {
             CarryDiag& d = g_carry_diag;
             carry_diag_note_model(model);
@@ -15548,6 +15635,16 @@ namespace trlvr
             for (const auto& e : seen)
                 if (e.model == model)
                     highest = e.highest;
+            int segments = total;
+            __try
+            {
+                segments = *reinterpret_cast<const int*>(
+                    static_cast<const unsigned char*>(model) +
+                    kOffModelNumSegments);
+            }
+            __except(EXCEPTION_EXECUTE_HANDLER)
+            {
+            }
             if (highest == -2)
             {
                 __try
@@ -15570,12 +15667,44 @@ namespace trlvr
                 seen[seen_next].highest = highest;
                 seen_next = (seen_next + 1) % 8;
             }
-            log("carry #%u: her instance drawn with model %p (%d matrices; its "
-                "vertices use segments up to %d) as well as hers %p (%d "
-                "matrices) -- %d carried%s", d.serial, model, total, highest,
-                hers, hers_total, carried,
-                highest >= carried ? " -- SOME OF ITS VERTICES STAY AT THE "
-                                     "PICK-UP SPOT"
+            void* const transform = g_carry_draw_transform;
+            bool split = false;  // its last segments come from `transform`
+            carry_segment_source(total - 1, segments, transform != nullptr,
+                                 &split);
+            const int from_instance = split ? segments : total;
+            const bool rebuilt = split && fix && g_carry_draw_wet;
+            // The highest segment its vertices read from each array.
+            const int highest_instance =
+                highest < from_instance ? highest : from_instance - 1;
+            const bool instance_short = highest_instance >= carried;
+            const bool blend_short = split && highest >= segments && !rebuilt;
+            char arrays[256];
+            if (split)
+                snprintf(arrays, sizeof(arrays),
+                         "it reads 0-%d from her instance matrices %p (%d "
+                         "carried%s) and its blended joints %d-%d from %s %p "
+                         "(%d matrices, %s)", segments - 1, matrices, carried,
+                         carried >= segments ? "" : ", NOT ALL OF THESE",
+                         segments, total - 1,
+                         g_carry_draw_wet ? "the wet/dirty blend array"
+                                          : "the draw's transform array",
+                         transform, total - segments,
+                         rebuilt ? "re-blended on the carried pose"
+                         : g_carry_draw_wet
+                             ? "blended by the game before the draw from the "
+                               "un-carried pose, NOT CARRIED"
+                             : "not re-blended, NOT CARRIED");
+            else
+                snprintf(arrays, sizeof(arrays),
+                         "it reads all %d from her instance matrices %p (%d "
+                         "carried)", total, matrices, carried);
+            log("carry #%u: her instance drawn with model %p (%d matrices, %d "
+                "real; its vertices use segments up to %d) as well as hers %p "
+                "(%d matrices, all from %p) -- %d carried; %s%s", d.serial,
+                model, total, segments, highest, hers, hers_total, matrices,
+                carried, arrays,
+                instance_short || blend_short
+                    ? " -- SOME OF ITS VERTICES STAY AT THE PICK-UP SPOT"
                 : !fix && hers_total > total
                     ? " (god_carry_fix 0)" : "");
         }
@@ -15783,6 +15912,11 @@ namespace trlvr
                 }
                 carry_diag_tick();
                 const bool fix = config().god_carry_fix;
+                // The wet/dirty overlay brings its own blended joints
+                // (wet_dirty_draw above); carry_apply's diagnostics say so.
+                const bool wet = wet_dirty_draw(instance, model, transform);
+                g_carry_draw_transform = transform;
+                g_carry_draw_wet = wet;
                 // TRLVR 1.1.0 (god_carry_fix 0): one save, in use (non-null
                 // matrices) from carry_apply to carry_restore: a draw nested
                 // inside this one is not carried rather than overwrite it.
@@ -15847,6 +15981,20 @@ namespace trlvr
                 // Her rear soft body, from her pose as drawn (after the
                 // carry, the push and the soft parts).
                 rear_soft_prepare(instance);
+                g_carry_draw_transform = nullptr;
+                g_carry_draw_wet = false;
+                // The wet/dirty overlay's blended joints, blended again by
+                // the game's own builder from her pose as drawn (the carry,
+                // the push, the soft parts and wall touch all wrote it after
+                // the game blended them). A no-op when nothing moved.
+                if (fix && wet)
+                {
+                    const bool ok = wet_dirty_rebuild(instance, model,
+                                                      transform);
+                    if (carried && g_carry_diag.open)
+                        ++(ok ? g_carry_diag.wet_rebuilds
+                              : g_carry_diag.wet_failed);
+                }
                 // The outermost carried draw: what the game is handed
                 // (diagnostic A) and her model's skinning (C).
                 const bool outer = save && !in_carry;

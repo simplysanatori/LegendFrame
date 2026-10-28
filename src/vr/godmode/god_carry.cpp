@@ -124,4 +124,15 @@ namespace trlvr
         }
         return highest;
     }
+
+    int carry_segment_source(int segment, int num_segments, bool has_transform,
+                             bool* from_transform)
+    {
+        const bool blended = has_transform && segment >= num_segments;
+        if (from_transform)
+            *from_transform = blended && segment >= 0;
+        if (segment < 0)
+            return -1;
+        return blended ? segment - num_segments : segment;
+    }
 }
