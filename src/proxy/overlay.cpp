@@ -1121,8 +1121,8 @@ namespace trlvr
                                     &single_pass))
                     stereo_set_single_pass(single_pass);
                 help("Draws both eyes in one pass where the scene allows. "
-                     "Takes effect only if [vr] stereo_mode = singlepass "
-                     "was set at start-up. Not saved.");
+                     "Live switch; [vr] stereo_mode sets the start-up mode. "
+                     "Needs the LegendFrame DXVK build. Not saved.");
             }
             if (ImGui::CollapsingHeader("Third-person cameras"))
                 camera_section(c);
