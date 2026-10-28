@@ -432,6 +432,31 @@ namespace trlvr
         }
     }
 
+    bool reflection_stereo_draw_needs_eye_textures(IDirect3DDevice9* device)
+    {
+        // Mirrors reflection_stereo_eye_textures. A copy that cannot be split
+        // still counts (two-pass then draws it unswapped, as it always did);
+        // in "whole" mode (Shift+F8) nothing is swapped, and the split it
+        // would have refreshed is only read once the mode changes back, by
+        // which time the next per-eye draw refreshes it anyway.
+        if (!device || device != g_device)
+            return false;
+        const bool copy = g_copy && g_copy_mode != 2;
+        const bool reflection = g_enabled && g_twin && g_refl_texture &&
+            g_refl_mode == 0;
+        if (!copy && !reflection)
+            return false;
+        for (DWORD s = 0; s < 16; ++s)
+        {
+            if (copy && g_bound[s] == (IDirect3DBaseTexture9*)g_copy)
+                return true;
+            if (reflection &&
+                g_bound[s] == (IDirect3DBaseTexture9*)g_refl_texture)
+                return true;
+        }
+        return false;
+    }
+
     void reflection_stereo_restore_textures(IDirect3DDevice9* device)
     {
         if (!device)
