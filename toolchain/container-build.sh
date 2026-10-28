@@ -55,7 +55,10 @@ if [ "$WHAT" = all ] || [ "$WHAT" = proxy ]; then
   DEFS=$(grep -E '^set CFLAGS=' /src/build.bat | grep -oE '/D[A-Za-z_0-9]+' | sed 's#^/D#-D#' | tr '\n' ' ')
   INC="-I$W/third_party/openvr/headers -I$W/third_party/openxr/include -I$W/third_party/imgui -I/src/dxvk-trlvr/src/d3d9 -I/src/dxvk-trlvr/include/vulkan/include"
   # -include seh_compat.h: MSVC __try/__except shim + _ReturnAddress + sret helper; sources stay unmodified.
-  CXXFLAGS="-std=gnu++17 -O2 $DEFS -fno-strict-aliasing -include /shims/seh_compat.h $INC ${EXTRA_CXXFLAGS:-}"
+  # MSVC x86 defaults to SSE2 math; i686 GCC defaults to x87, which is slow under FEX. -mstackrealign:
+  # the game (MSVC, 4-byte stack alignment) calls into the proxy, and GCC's SSE spills assume 16.
+  FPFLAGS="-msse2 -mfpmath=sse -mstackrealign"
+  CXXFLAGS="-std=gnu++17 -O2 $FPFLAGS $DEFS -fno-strict-aliasing -include /shims/seh_compat.h $INC ${EXTRA_CXXFLAGS:-}"
   echo "sources: $(echo $SRCS $IMGUI_SRCS | wc -w); defs: $DEFS"
   objs=(); pids=()
   for s in $SRCS $IMGUI_SRCS; do
@@ -79,7 +82,7 @@ if [ "$WHAT" = all ] || [ "$WHAT" = proxy ]; then
       -Wl,-Map,/out/dist/d3d9.map \
       -ldxguid -luser32 -lkernel32 -ladvapi32 -lgdi32 -ldwmapi ${EXTRA_LIBS:-}
   # Launcher: its own exe (large-address-aware bit must be in the file).
-  i686-w64-mingw32-g++ -std=gnu++17 -O2 -DWIN32 -DNDEBUG -D_CRT_SECURE_NO_WARNINGS \
+  i686-w64-mingw32-g++ -std=gnu++17 -O2 $FPFLAGS -DWIN32 -DNDEBUG -D_CRT_SECURE_NO_WARNINGS \
       -include /shims/seh_compat.h -static -static-libgcc -static-libstdc++ -s \
       -o /out/dist/trlvr_launcher.exe "$W/src/launcher/main.cpp" \
       -mwindows -municode -Wl,--large-address-aware -luser32 -lkernel32 -lshell32
