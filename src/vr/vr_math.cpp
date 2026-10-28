@@ -712,13 +712,56 @@ namespace trlvr
         return source * clip_scale * inv_reference * rotation * target;
     }
 
+    Mat4 reproject_ndc_to_world_locked_eye(WorldLockedPrefix* shared,
+                                           const Mat4& source,
+                                           const Mat4& reference,
+                                           const Mat4& target,
+                                           const Mat4& head_view_rotation,
+                                           float scale,
+                                           float bias_x,
+                                           float bias_y)
+    {
+        if (!shared)
+            return reproject_ndc_to_world_locked(source, reference, target,
+                                                 head_view_rotation, scale,
+                                                 bias_x, bias_y);
+        if (!shared->built)
+        {
+            shared->built = true;
+            Mat4 inv_reference{};
+            shared->inverted = invert(reference, &inv_reference);
+            if (shared->inverted)
+            {
+                // As reproject_ndc_to_world_locked builds it.
+                Mat4 clip_scale = Mat4::identity();
+                clip_scale.m[0][0] = scale;
+                clip_scale.m[1][1] = scale;
+                clip_scale.m[3][0] = bias_x;
+                clip_scale.m[3][1] = bias_y;
+                Mat4 rotation = head_view_rotation;
+                rotation.m[3][0] = rotation.m[3][1] = rotation.m[3][2] = 0.0f;
+                shared->prefix = source * clip_scale * inv_reference * rotation;
+            }
+        }
+        if (!shared->inverted)
+            return reproject_ndc_to_frustum(source, reference, target, scale,
+                                            bias_x, bias_y);
+        return shared->prefix * target;
+    }
+
     void registers_from_matrix(const Mat4& m, float* out)
     {
         if (!out)
             return;
-        for (int i = 0; i < 4; ++i)          // register i holds column i
-            for (int k = 0; k < 4; ++k)
-                out[i * 4 + k] = m.m[k][i];
+        // Register i holds column i (written out: this runs twice per draw).
+        out[0]  = m.m[0][0]; out[1]  = m.m[1][0];
+        out[2]  = m.m[2][0]; out[3]  = m.m[3][0];
+        out[4]  = m.m[0][1]; out[5]  = m.m[1][1];
+        out[6]  = m.m[2][1]; out[7]  = m.m[3][1];
+        out[8]  = m.m[0][2]; out[9]  = m.m[1][2];
+        out[10] = m.m[2][2]; out[11] = m.m[3][2];
+        out[12] = m.m[0][3]; out[13] = m.m[1][3];
+        out[14] = m.m[2][3]; out[15] = m.m[3][3];
     }
 
     // Turns an OpenVR pose into a view matrix in the engine's space.
@@ -781,6 +824,29 @@ namespace trlvr
             v.m[3][j] = -acc * world_scale;
         }
         return v;
+    }
+
+    bool is_identity(const Mat4& m)
+    {
+        static const Mat4 identity = Mat4::identity();
+        return memcmp(&m, &identity, sizeof(Mat4)) == 0;
+    }
+
+    bool times_identity(const Mat4& in, Mat4* out)
+    {
+        // On the bits: exponent all ones is inf/NaN; 0x80000000 is -0.
+        unsigned bits[16];
+        memcpy(bits, &in.m[0][0], sizeof(bits));
+        unsigned non_finite = 0;
+        for (int i = 0; i < 16; ++i)
+        {
+            non_finite |= (bits[i] & 0x7F800000u) == 0x7F800000u;
+            bits[i] = bits[i] == 0x80000000u ? 0u : bits[i];
+        }
+        if (non_finite)
+            return false;
+        memcpy(&out->m[0][0], bits, sizeof(bits));
+        return true;
     }
 
     bool is_perspective_registers(const float* regs)

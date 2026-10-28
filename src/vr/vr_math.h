@@ -176,6 +176,29 @@ namespace trlvr
                                        float bias_x = 0.0f,
                                        float bias_y = 0.0f);
 
+    // The same mapping for several eyes of one draw (M4). Everything left of
+    // the eye's target projection -- inverse(reference) and
+    // source * clip_scale * inv_reference * rotation -- is the same for every
+    // eye, and the product is left-associative, so it is made once (on the
+    // first call with a fresh prefix) and reused: each result is bit for bit
+    // what reproject_ndc_to_world_locked returns for the same arguments.
+    // Every call sharing one prefix must pass the same source, reference,
+    // rotation, scale and bias; only target_projection may differ.
+    struct WorldLockedPrefix
+    {
+        bool built = false;
+        bool inverted = false;
+        Mat4 prefix{};
+    };
+    Mat4 reproject_ndc_to_world_locked_eye(WorldLockedPrefix* shared,
+                                           const Mat4& source,
+                                           const Mat4& reference_projection,
+                                           const Mat4& target_projection,
+                                           const Mat4& head_view_rotation,
+                                           float scale,
+                                           float bias_x = 0.0f,
+                                           float bias_y = 0.0f);
+
     // An OpenVR pose (3x4 row-major, right-handed, metres) turned into a view
     // matrix in the engine's space. Three conversions at once -- inverse,
     // handedness, units -- and each is easy to get subtly wrong, so this is
@@ -197,4 +220,13 @@ namespace trlvr
 
     // Write a matrix back out as the four constant registers.
     void registers_from_matrix(const Mat4& m, float* out_regs16);
+
+    // M4: products with an exact identity, without the 64 multiplies
+    // (paused_head is the identity in gameplay). operator* sums
+    // (((0 + p0) + p1) + p2) + p3 and every p but one is then a signed zero,
+    // so m * I and I * m are m itself with -0 turned into +0 -- provided m
+    // is finite (0 * inf is NaN). times_identity writes that and returns
+    // true, or returns false (non-finite m) for the caller to multiply.
+    bool is_identity(const Mat4& m);
+    bool times_identity(const Mat4& m, Mat4* out);
 }

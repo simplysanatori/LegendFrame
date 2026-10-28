@@ -27,6 +27,16 @@ namespace trlvr
 
         EyeInfo g_eyes[2]{};
         unsigned g_rt_width = 0, g_rt_height = 0;
+        // M4: bumped whenever g_eyes / g_head_view (or g_pose_valid) may
+        // have changed, so the eye matrix cache can key on them.
+        unsigned g_eyes_generation = 1;
+        unsigned g_head_view_generation = 1;
+        // [vr] stereo_shared_math (default on): vr_substitute_c0_stereo
+        // shares the eye-independent work between the eyes, and
+        // vr_eye_matrix results are cached per frame. 0 = legacy per-eye
+        // calls and no cache, for A/B.
+        bool g_shared_math = true;
+        bool g_eye_cache_on = true;
         float g_ipd = 0.0f;
 
         Eye g_current_eye = EyeCenter;
@@ -258,12 +268,15 @@ namespace trlvr
             }
             g_ipd = g_eyes[EyeRight].offset_x - g_eyes[EyeLeft].offset_x;
             g_eyes_from_runtime = false;
+            ++g_eyes_generation;
 
             log("vr: headset '%s'", xr_system_name());
             log("vr: recommended render target %ux%u per eye", g_rt_width, g_rt_height);
             log_eyes("provisional, until the session reports the real frusta");
         }
     }
+
+    static void read_shared_math_settings();
 
     bool vr_init()
     {
@@ -285,6 +298,7 @@ namespace trlvr
         g_ready = true;
         set_status("ready");
         log("vr: OpenXR instance up");
+        read_shared_math_settings();
         if (!config().vr_submit)
             log("vr: [vr] submit = 0 -- no session is created, so there is "
                 "no image in the headset and no tracking");
@@ -296,6 +310,8 @@ namespace trlvr
     {
         if (!g_ready || !eyes)
             return;
+        // Before any g_eyes[i] is replaced (the loop can stop half way).
+        ++g_eyes_generation;
         float change = 0.0f;
         for (int i = 0; i < 2; ++i)
         {
@@ -843,12 +859,266 @@ namespace trlvr
                                              tune_ui_scale());
     }
 
-    bool vr_substitute_c0_for_eye(const float* in, float* out, Eye eye)
+    // ---- M4: shared per-eye maths ---------------------------------------
+    namespace
     {
-        if (!g_ready || !in || !out || !config().head_tracking)
+        // What one eye projection is built from besides the eye: see
+        // eye_projection_inputs. Plain 4-byte fields, no padding, so the
+        // cache can compare keys with memcmp.
+        struct EyeProjInputs
+        {
+            float zoom;
+            float near_z;
+            float far_z;
+            float s;             // eye separation scale (stereo eyes only)
+            int flip;            // game.sy < 0
+            int sky;             // g_sky_no_eye_offset when read
+            int stereo_eye;      // left/right (s and the movie checks read)
+        };
+
+        // The inputs read for the first eye of one substitution call,
+        // reused by the second while they cannot differ.
+        struct EyeMatrixShare
+        {
+            bool valid;
+            float zoom;
+            EyeProjInputs in;
+        };
+    }
+
+    float binocular_zoom(const GameProjection& game);
+    static Mat4 eye_from_head(const EyeInfo& in, float scale);
+    static Mat4 eye_matrix_shared(Eye eye, const GameProjection& game,
+                                  EyeMatrixShare* share);
+    static void eye_cache_clear();
+
+    static_assert(sizeof(EyeProjInputs) == 28, "EyeProjInputs is a memcmp key");
+    static_assert(sizeof(C0CaptureRecord) == 444, "c0_capture.bin layout");
+
+    // c0_capture.bin ([vr] vr_capture_c0 = 1): the game's c0 and the state
+    // the substitution reads, one record per call, for mathtest to replay
+    // (src/test/mathtest.sh session, C0_CAPTURE=...). Debug only.
+    namespace
+    {
+        bool g_c0_capture_on = false;
+        FILE* g_c0_capture_file = nullptr;
+        unsigned g_c0_capture_total = 0;
+        unsigned g_c0_capture_this_frame = 0;
+        unsigned g_frame_number = 0;
+        const unsigned kC0CaptureMax = 20000;
+        const unsigned kC0CapturePerFrame = 256;
+        unsigned g_eye_cache_reports = 0;
+    }
+
+    void vr_c0_capture_enable(bool on)
+    {
+        g_c0_capture_on = on;
+        if (!on && g_c0_capture_file)
+        {
+            fclose(g_c0_capture_file);
+            g_c0_capture_file = nullptr;
+        }
+    }
+
+    static void c0_capture_frame()
+    {
+        ++g_frame_number;
+        g_c0_capture_this_frame = 0;
+        if (g_c0_capture_file)
+            fflush(g_c0_capture_file);
+    }
+
+    static void c0_capture_record(const float* in, int eye_code)
+    {
+        if (!g_c0_capture_on || g_c0_capture_total >= kC0CaptureMax ||
+            g_c0_capture_this_frame >= kC0CapturePerFrame)
+            return;
+        if (!g_c0_capture_file)
+        {
+            wchar_t path[MAX_PATH] = {};
+            wcsncpy(path, exe_dir(), MAX_PATH - 20);
+            wcscat(path, L"c0_capture.bin");
+#ifdef _WIN32
+            g_c0_capture_file = _wfopen(path, L"ab");
+#else
+            char narrow[MAX_PATH * 4] = {};
+            wcstombs(narrow, path, sizeof(narrow) - 1);
+            g_c0_capture_file = fopen(narrow, "ab");
+#endif
+            if (!g_c0_capture_file)
+            {
+                g_c0_capture_on = false;
+                log("c0 capture: cannot open c0_capture.bin; capture off");
+                return;
+            }
+            log("c0 capture: appending the game's c0 and mode flags to "
+                "c0_capture.bin (%u records at most, %u a frame)",
+                kC0CaptureMax, kC0CapturePerFrame);
+        }
+        C0CaptureRecord rec;
+        memset(&rec, 0, sizeof(rec));
+        memcpy(rec.magic, "C0R1", 4);
+        rec.frame = g_frame_number;
+        rec.eye = eye_code;
+        unsigned f = 0;
+        if (config().ui_passthrough)       f |= C0CapUiPassthrough;
+        if (ui_drawing_interface())        f |= C0CapInterface;
+        if (ui_drawing_screen_wipe())      f |= C0CapScreenWipe;
+        if (movie_playing())               f |= C0CapMovie;
+        if (ui_loading_screen_active())    f |= C0CapLoading;
+        if (ui_mission_prep_active())      f |= C0CapMissionPrep;
+        if (ui_pda_active())               f |= C0CapPda;
+        if (ui_menu_active())              f |= C0CapMenu;
+        if (ui_pause_menu_active())        f |= C0CapPause;
+        if (ui_interface_world_locked())   f |= C0CapWorldLocked;
+        if (ui_drawing_world_marker())     f |= C0CapMarker;
+        if (camera_first_person_active())  f |= C0CapFirstPerson;
+        if (camera_accurate_aim_active())  f |= C0CapAccurateAim;
+        if (hud_binocular_view_active())   f |= C0CapBinocular;
+        if (vr_theatre_active())           f |= C0CapTheatre;
+        if (g_pose_valid)                  f |= C0CapPoseValid;
+        if (config().hmd_drives_camera)    f |= C0CapHmdDrivesCamera;
+        if (g_game_proj_known)             f |= C0CapGameProjKnown;
+        if (config().pause_world_locked)   f |= C0CapPauseWorldLocked;
+        if (config().menu_world_locked)    f |= C0CapMenuWorldLocked;
+        if (config().head_tracking)        f |= C0CapHeadTracking;
+        if (camera_frame_positions(&rec.camera[0], &rec.camera[3],
+                                   &rec.camera[6]))
+            f |= C0CapCameraOk;
+        if (main_camera_wc(rec.main_wc))   f |= C0CapMainWcOk;
+        rec.flags = f;
+        rec.gpu_hand = camera_first_person_current_gpu_hand();
+        rec.root_screen = ui_root_screen_id();
+        memcpy(rec.c0, in, sizeof(rec.c0));
+        memcpy(rec.hmd_pose,
+               &g_tracked_poses[kPoseHmd].mDeviceToAbsoluteTracking.m[0][0],
+               sizeof(rec.hmd_pose));
+        for (int i = 0; i < 2; ++i)
+        {
+            const EyeInfo& e = g_eyes[i];
+            float* v = rec.eye_views[i];
+            v[0] = e.tan_left;
+            v[1] = e.tan_right;
+            v[2] = e.tan_top;
+            v[3] = e.tan_bottom;
+            for (int row = 0; row < 3; ++row)
+            {
+                for (int col = 0; col < 3; ++col)
+                    v[4 + row * 4 + col] = e.rot[row][col];
+            }
+            v[4 + 3] = e.offset_x;
+            v[4 + 7] = e.offset_y;
+            v[4 + 11] = e.offset_z;
+        }
+        rec.game_proj[0] = g_game_proj.sx;
+        rec.game_proj[1] = g_game_proj.sy;
+        rec.game_proj[2] = g_game_proj.ox;
+        rec.game_proj[3] = g_game_proj.oy;
+        rec.game_proj[4] = g_game_proj.q;
+        rec.game_proj[5] = g_game_proj.near_z;
+        rec.game_proj[6] = g_game_proj.far_z;
+        rec.game_proj[7] = g_game_proj_known ? 1.0f : 0.0f;
+        rec.scalars[C0CapUiScale] = config().ui_scale;
+        rec.scalars[C0CapHudFollow] = config().hud_follow;
+        rec.scalars[C0CapWorldScale] = config().world_scale;
+        rec.scalars[C0CapWorldScaleFactor] = camera_world_scale_factor();
+        rec.scalars[C0CapStereoScale] = camera_stereo_scale();
+        rec.scalars[C0CapTheatreScale] = camera_theatre_scale();
+        rec.scalars[C0CapMarkerDepth] = camera_marker_depth();
+        rec.scalars[C0CapMarkerDistance] = tune_marker_distance();
+        rec.scalars[C0CapHudOffsetX] = config().hud_offset_x;
+        rec.scalars[C0CapHudOffsetY] = config().hud_offset_y;
+        rec.scalars[C0CapTurnScale] = tune_turn_scale();
+        rec.scalars[C0CapYawOffset] = g_yaw_offset;
+        fwrite(&rec, sizeof(rec), 1, g_c0_capture_file);
+        ++g_c0_capture_this_frame;
+        if (++g_c0_capture_total >= kC0CaptureMax)
+        {
+            log("c0 capture: %u records written; capture finished",
+                g_c0_capture_total);
+            fclose(g_c0_capture_file);
+            g_c0_capture_file = nullptr;
+            g_c0_capture_on = false;
+        }
+    }
+
+    // [vr] stereo_shared_math and [vr] vr_capture_c0, read straight from
+    // trlvr.ini (config.cpp has no generic accessor and belongs to another
+    // lane; if a Config field is added later, read it here instead).
+    static void read_shared_math_settings()
+    {
+        wchar_t ini[MAX_PATH] = {};
+        wcsncpy(ini, exe_dir(), MAX_PATH - 16);
+        wcscat(ini, L"trlvr.ini");
+        g_shared_math =
+            GetPrivateProfileIntW(L"vr", L"stereo_shared_math", 1, ini) != 0;
+        g_eye_cache_on = g_shared_math;
+        eye_cache_clear();
+        if (g_shared_math)
+            log("stereo: dual-eye substitution on (shared prefix, eye matrix "
+                "cache, zoom EMA per call as before: bit-exact)");
+        else
+            log("stereo: dual-eye substitution off ([vr] stereo_shared_math "
+                "= 0): legacy per-eye calls, no eye matrix cache");
+        if (GetPrivateProfileIntW(L"vr", L"vr_capture_c0", 0, ini) != 0)
+            vr_c0_capture_enable(true);
+    }
+
+    static void eye_cache_frame()
+    {
+        eye_cache_clear();
+        // A count now and then, to see the cache working in a session log.
+        if (g_eye_cache_on && g_frame_number % 3000 == 2999 &&
+            g_eye_cache_reports < 20)
+        {
+            unsigned hits = 0, misses = 0;
+            vr_eye_cache_stats(&hits, &misses);
+            ++g_eye_cache_reports;
+            log("stereo: eye matrix cache %u hits, %u misses so far",
+                hits, misses);
+        }
+    }
+
+    // M4 (LegendFrame, shared per-eye maths). One body serves a single eye
+    // (vr_substitute_c0_for_eye, the legacy path, unchanged in behaviour) and
+    // both eyes of one draw (vr_substitute_c0_stereo). With two eyes,
+    // everything that does not depend on the eye -- the menu/HUD/PDA state
+    // checks, projection recovery, P^-1, paused_head, the sky's world origin,
+    // the UI anchor, the shared left-hand factors of each product -- is
+    // evaluated once, and only the last product is made per eye. Every
+    // product in the original is left-associative ((a * b) * c) * eye, so
+    // sharing the left part gives the same floats.
+    //
+    // Side effects stay per eye and in the original order: binocular_zoom's
+    // learning and sky_pinned_draw's call counter run once per eye, left
+    // then right, exactly as two calls made them; the rest (pause anchor,
+    // menu anchor, projection learning, once-only logs) is idempotent
+    // between the left and right calls of one draw, so doing it once leaves
+    // the same state.
+    // a * b where one side may be paused_head: with stereo_shared_math and
+    // paused_head exactly the identity (all of gameplay), the same floats
+    // without the multiply (vr_math times_identity).
+    static Mat4 times_head(const Mat4& a, const Mat4& b, bool head_is_identity,
+                           bool head_on_left)
+    {
+        Mat4 r;
+        if (head_is_identity && times_identity(head_on_left ? b : a, &r))
+            return r;
+        return a * b;
+    }
+
+    static bool substitute_c0_eyes(const float* in, int count,
+                                   const Eye* eyes, float* const* outs)
+    {
+        if (!g_ready || !in || count < 1 || count > 2 ||
+            !config().head_tracking)
             return false;
+        for (int e = 0; e < count; ++e)
+            if (!outs[e])
+                return false;
         if (!drawing_the_scene())
             return false;
+        c0_capture_record(in, count == 2 ? 3 : (int)eyes[0]);
 
         // This is identity during gameplay and the main menu. During an
         // in-game pause it advances geometry from the last head pose that the
@@ -856,6 +1126,7 @@ namespace trlvr
         // Evaluate it before the interface branch so leaving pause clears the
         // anchor even when the next thing drawn is only menu UI.
         const Mat4 paused_head = pause_head_delta();
+        const bool head_identity = g_shared_math && is_identity(paused_head);
 
         // These primitives deliberately skip the engine's scene-matrix update.
         // They need neither the world camera nor positional eye separation,
@@ -895,7 +1166,8 @@ namespace trlvr
                     {
                         last_wipe_report = now;
                         log("ui: first-person screen wipe projected as a "
-                            "full-size head-locked overlay (eye %d)", int(eye));
+                            "full-size head-locked overlay (eye %d)",
+                            int(eyes[0]));
                     }
                 }
                 const EyeInfo& l = g_eyes[EyeLeft];
@@ -905,15 +1177,13 @@ namespace trlvr
                 centre.tan_right  = 0.5f * (l.tan_right + r.tan_right);
                 centre.tan_top    = 0.5f * (l.tan_top + r.tan_top);
                 centre.tan_bottom = 0.5f * (l.tan_bottom + r.tan_bottom);
+                auto target_of = [&](Eye eye) -> const EyeInfo& {
+                    return (eye == EyeCenter) ? centre : g_eyes[eye];
+                };
 
-                const EyeInfo& target = (eye == EyeCenter) ? centre : g_eyes[eye];
                 const Mat4 reference = projection_from_tangents(
                     centre.tan_left, centre.tan_right,
                     centre.tan_top, centre.tan_bottom,
-                    ui_gp.near_z, ui_gp.far_z, ui_gp.sy < 0.0f);
-                const Mat4 target_projection = projection_from_tangents(
-                    target.tan_left, target.tan_right,
-                    target.tan_top, target.tan_bottom,
                     ui_gp.near_z, ui_gp.far_z, ui_gp.sy < 0.0f);
                 const bool world_locked = !screen_wipe &&
                     (ui_interface_world_locked() || movie);
@@ -933,7 +1203,7 @@ namespace trlvr
                 static bool menu_anchor_pause = false;
                 static float menu_anchor_yaw = 0.0f;
                 static unsigned menu_anchor_recenter = 0;
-                Mat4 ui{};
+                Mat4 ui[2]{};
                 if (world_locked)
                 {
                     // The game's HUD plane sits at (or extremely close to)
@@ -946,10 +1216,6 @@ namespace trlvr
                     // change, just the otherwise irrelevant clip depth.
                     const float menu_near = ui_gp.near_z > 1.0f
                                           ? 1.0f : ui_gp.near_z;
-                    const Mat4 menu_projection = projection_from_tangents(
-                        target.tan_left, target.tan_right,
-                        target.tan_top, target.tan_bottom,
-                        menu_near, ui_gp.far_z, ui_gp.sy < 0.0f);
                     const Mat4 current = vr_head_rotation();
                     // A loading screen between the pause menu and the main
                     // menu stays world-locked, so a change of kind (or a
@@ -1008,8 +1274,18 @@ namespace trlvr
                             }
                         }
                     }
-                    ui = reproject_ndc_to_world_locked(
-                        source, reference, menu_projection, relative, scale);
+                    WorldLockedPrefix prefix;
+                    for (int e = 0; e < count; ++e)
+                    {
+                        const EyeInfo& target = target_of(eyes[e]);
+                        const Mat4 menu_projection = projection_from_tangents(
+                            target.tan_left, target.tan_right,
+                            target.tan_top, target.tan_bottom,
+                            menu_near, ui_gp.far_z, ui_gp.sy < 0.0f);
+                        ui[e] = reproject_ndc_to_world_locked_eye(&prefix, source, reference,
+                                                 menu_projection, relative,
+                                                 scale, 0.0f, 0.0f);
+                    }
                 }
                 else
                 {
@@ -1035,10 +1311,6 @@ namespace trlvr
                         Mat4 inv_reference;
                         const float hud_near = ui_gp.near_z > 1.0f
                                              ? 1.0f : ui_gp.near_z;
-                        const Mat4 hud_projection = projection_from_tangents(
-                            target.tan_left, target.tan_right,
-                            target.tan_top, target.tan_bottom,
-                            hud_near, ui_gp.far_z, ui_gp.sy < 0.0f);
                         if (invert(reference, &inv_reference))
                         {
                             Mat4 clip_scale = Mat4::identity();
@@ -1053,7 +1325,6 @@ namespace trlvr
                             // (user screenshot 2026-10-03). Shear each eye's
                             // ray by its offset over the marker depth (camera
                             // to Lara), placing the sprite at that distance.
-                            Mat4 converge = Mat4::identity();
                             // First person: the camera focus is ~0.7 m out
                             // (log 2026-10-04), not the marked object, so a
                             // tunable distance is used instead ([ and ]).
@@ -1062,23 +1333,39 @@ namespace trlvr
                             const float depth = fp_marker
                                 ? tune_marker_distance() * tune_world_scale()
                                 : camera_marker_depth();
-                            if (eye != EyeCenter && depth > 1.0f)
+                            // (projection_from_game * clip_scale) *
+                            // inv_reference is the same for both eyes.
+                            const Mat4 base = projection_from_game(ui_gp) *
+                                              clip_scale * inv_reference;
+                            for (int e = 0; e < count; ++e)
                             {
-                                const float s = tune_world_scale() *
-                                    tune_ipd_scale() * camera_stereo_scale();
-                                // Tuned in the headset (2026-10-03): 0.75 in
-                                // board mode (the marker sits a little beyond
-                                // Lara); 1 elsewhere, untuned.
-                                const float k =
-                                    camera_world_scale_factor() > 1.001f
-                                    ? 0.75f : 1.0f;
-                                converge.m[2][0] =
-                                    -target.offset_x * s / depth * k;
-                                converge.m[2][1] =
-                                    -target.offset_y * s / depth * k;
+                                const Eye eye = eyes[e];
+                                const EyeInfo& target = target_of(eye);
+                                const Mat4 hud_projection =
+                                    projection_from_tangents(
+                                        target.tan_left, target.tan_right,
+                                        target.tan_top, target.tan_bottom,
+                                        hud_near, ui_gp.far_z,
+                                        ui_gp.sy < 0.0f);
+                                Mat4 converge = Mat4::identity();
+                                if (eye != EyeCenter && depth > 1.0f)
+                                {
+                                    const float s = tune_world_scale() *
+                                        tune_ipd_scale() * camera_stereo_scale();
+                                    // Tuned in the headset (2026-10-03): 0.75
+                                    // in board mode (the marker sits a little
+                                    // beyond Lara); 1 elsewhere, untuned.
+                                    const float k =
+                                        camera_world_scale_factor() > 1.001f
+                                        ? 0.75f : 1.0f;
+                                    converge.m[2][0] =
+                                        -target.offset_x * s / depth * k;
+                                    converge.m[2][1] =
+                                        -target.offset_y * s / depth * k;
+                                }
+                                registers_from_matrix(
+                                    base * converge * hud_projection, outs[e]);
                             }
-                            ui = projection_from_game(ui_gp) * clip_scale *
-                                 inv_reference * converge * hud_projection;
                             static bool marker_reported = false;
                             if (!marker_reported)
                             {
@@ -1088,7 +1375,6 @@ namespace trlvr
                                     "%.3f x %.3f)", clip_scale.m[0][0],
                                     clip_scale.m[1][1]);
                             }
-                            registers_from_matrix(ui, out);
                             return true;
                         }
                     }
@@ -1122,6 +1408,7 @@ namespace trlvr
                                 hud_bias_x, hud_bias_y);
                         }
                     }
+                    const Mat4 source = projection_from_game(ui_gp);
                     if (!screen_wipe && !ui_menu_active() && follow < 0.999f)
                     {
                         // Leave a small fraction of current head rotation in
@@ -1134,28 +1421,43 @@ namespace trlvr
                         // slices its triangles.
                         const float hud_near = ui_gp.near_z > 1.0f
                                              ? 1.0f : ui_gp.near_z;
-                        const Mat4 hud_projection = projection_from_tangents(
-                            target.tan_left, target.tan_right,
-                            target.tan_top, target.tan_bottom,
-                            hud_near, ui_gp.far_z, ui_gp.sy < 0.0f);
                         const Mat4 relative = rotation_fraction(
                             vr_head_rotation(), 1.0f - follow);
-                        ui = reproject_ndc_to_world_locked(
-                            projection_from_game(ui_gp), reference,
-                            hud_projection, relative, scale,
-                            hud_bias_x, hud_bias_y);
+                        WorldLockedPrefix prefix;
+                        for (int e = 0; e < count; ++e)
+                        {
+                            const EyeInfo& target = target_of(eyes[e]);
+                            const Mat4 hud_projection = projection_from_tangents(
+                                target.tan_left, target.tan_right,
+                                target.tan_top, target.tan_bottom,
+                                hud_near, ui_gp.far_z, ui_gp.sy < 0.0f);
+                            ui[e] = reproject_ndc_to_world_locked_eye(&prefix, source,
+                                                     reference, hud_projection,
+                                                     relative, scale,
+                                                     hud_bias_x, hud_bias_y);
+                        }
                     }
                     else
                     {
                         // The pause menu stays rigidly head-locked unless
                         // pause_world_locked took it to the branch above.
-                        ui = reproject_ndc_to_frustum(
-                            projection_from_game(ui_gp), reference,
-                            target_projection, scale,
-                            hud_bias_x, hud_bias_y);
+                        for (int e = 0; e < count; ++e)
+                        {
+                            const EyeInfo& target = target_of(eyes[e]);
+                            const Mat4 target_projection =
+                                projection_from_tangents(
+                                    target.tan_left, target.tan_right,
+                                    target.tan_top, target.tan_bottom,
+                                    ui_gp.near_z, ui_gp.far_z,
+                                    ui_gp.sy < 0.0f);
+                            ui[e] = reproject_ndc_to_frustum(
+                                source, reference, target_projection, scale,
+                                hud_bias_x, hud_bias_y);
+                        }
                     }
                 }
-                registers_from_matrix(ui, out);
+                for (int e = 0; e < count; ++e)
+                    registers_from_matrix(ui[e], outs[e]);
 
                 static bool reported = false;
                 if (!reported)
@@ -1188,18 +1490,24 @@ namespace trlvr
             // below. Pin it with the menu by its full matrix instead.
             if (prep_menu)
             {
-                registers_from_matrix(
-                    mission_prep_pinned(in, GameProjection{}, eye, true), out);
+                for (int e = 0; e < count; ++e)
+                    registers_from_matrix(
+                        mission_prep_pinned(in, GameProjection{}, eyes[e],
+                                            true), outs[e]);
                 return true;
             }
             // Unexpected, but safer than putting an unrecognised HUD matrix
             // through the world stereo decomposition. Retain the preceding
             // mono behaviour and size correction for that draw.
-            memcpy(out, in, 16 * sizeof(float));
-            for (int component = 0; component < 4; ++component)
+            for (int e = 0; e < count; ++e)
             {
-                out[component] *= scale;
-                out[4 + component] *= scale;
+                float* out = outs[e];
+                memcpy(out, in, 16 * sizeof(float));
+                for (int component = 0; component < 4; ++component)
+                {
+                    out[component] *= scale;
+                    out[4 + component] *= scale;
+                }
             }
             static bool warned = false;
             if (!warned)
@@ -1235,23 +1543,30 @@ namespace trlvr
             const bool flip = depth.valid ? depth.sy < 0.0f : false;
             const EyeInfo& l = g_eyes[EyeLeft];
             const EyeInfo& r = g_eyes[EyeRight];
-            const EyeInfo& target = (eye == EyeCenter) ? l : g_eyes[eye];
             const Mat4 reference = projection_from_tangents(
                 0.5f * (l.tan_left + r.tan_left),
                 0.5f * (l.tan_right + r.tan_right),
                 0.5f * (l.tan_top + r.tan_top),
                 0.5f * (l.tan_bottom + r.tan_bottom),
                 near_z, far_z, flip);
-            // The menu's own close clip plane, so the rotated plane is not
-            // cut into wedges (see the world-locked menu above).
-            const Mat4 panel = projection_from_tangents(
-                target.tan_left, target.tan_right,
-                target.tan_top, target.tan_bottom,
-                near_z > 1.0f ? 1.0f : near_z, far_z, flip);
             const Mat4 source = gp.valid ? projection_from_game(gp) : m;
-            registers_from_matrix(reproject_ndc_to_world_locked(
-                source, reference, panel, vr_head_rotation(),
-                tune_ui_scale()), out);
+            const Mat4 rotation = vr_head_rotation();
+            const float ui_scale = tune_ui_scale();
+            WorldLockedPrefix prefix;
+            for (int e = 0; e < count; ++e)
+            {
+                const Eye eye = eyes[e];
+                const EyeInfo& target = (eye == EyeCenter) ? l : g_eyes[eye];
+                // The menu's own close clip plane, so the rotated plane is
+                // not cut into wedges (see the world-locked menu above).
+                const Mat4 panel = projection_from_tangents(
+                    target.tan_left, target.tan_right,
+                    target.tan_top, target.tan_bottom,
+                    near_z > 1.0f ? 1.0f : near_z, far_z, flip);
+                registers_from_matrix(reproject_ndc_to_world_locked_eye(
+                    &prefix, source, reference, panel, rotation, ui_scale,
+                    0.0f, 0.0f), outs[e]);
+            }
             static bool reported = false;
             if (!reported)
             {
@@ -1270,8 +1585,9 @@ namespace trlvr
         if (config().ui_passthrough && ui_mission_prep_active())
         {
             const bool flat = !gp.valid && !is_perspective_registers(in);
-            registers_from_matrix(
-                mission_prep_pinned(in, gp, eye, flat), out);
+            for (int e = 0; e < count; ++e)
+                registers_from_matrix(
+                    mission_prep_pinned(in, gp, eyes[e], flat), outs[e]);
             static bool reported = false;
             if (!reported)
             {
@@ -1299,10 +1615,12 @@ namespace trlvr
             if (hand >= 0 && config().pause_world_locked &&
                 ui_pause_menu_active())
             {
-                for (int i = 0; i < 16; ++i)
-                    out[i] = 0.0f;
+                for (int e = 0; e < count; ++e)
+                    for (int i = 0; i < 16; ++i)
+                        outs[e][i] = 0.0f;
                 return true;
             }
+            EyeMatrixShare share{};
             // Third-person controller hands in board mode: drawn at their
             // own size at 1/F of the controller distance (camera_head);
             // scaling view space by F about the head puts them on the
@@ -1326,8 +1644,14 @@ namespace trlvr
                 // than they were and nearer-looking rocks hid them (user
                 // screenshots 2026-10-02). They are an arm's length away,
                 // far beyond any game near plane, so nothing clips.
-                registers_from_matrix(scale * paused_head *
-                    vr_eye_matrix(eye, gp), out);
+                const Mat4 head_scale = times_head(scale, paused_head,
+                                                   head_identity, false);
+                const bool scale_identity =
+                    g_shared_math && is_identity(head_scale);
+                for (int e = 0; e < count; ++e)
+                    registers_from_matrix(times_head(head_scale,
+                        eye_matrix_shared(eyes[e], gp, &share),
+                        scale_identity, true), outs[e]);
                 static bool reported = false;
                 if (!reported && grow > 1.001f)
                 {
@@ -1341,21 +1665,25 @@ namespace trlvr
             {
                 GameProjection hand_projection = gp;
                 hand_projection.near_z = 4.0f;
-                if (eye == EyeLeft)
+                for (int e = 0; e < count; ++e)
                 {
-                    static unsigned reported_mark[2] = { ~0u, ~0u };
-                    const unsigned mark = tune_ledge_visibility_marker();
-                    if (reported_mark[hand] != mark)
+                    if (eyes[e] == EyeLeft)
                     {
-                        reported_mark[hand] = mark;
-                        log("render: tracked %s hand projection F8=%u "
-                            "game near=%+.3f -> VR near=4.000 far=%.1f",
-                            hand == 0 ? "left" : "right", mark,
-                            gp.near_z, gp.far_z);
+                        static unsigned reported_mark[2] = { ~0u, ~0u };
+                        const unsigned mark = tune_ledge_visibility_marker();
+                        if (reported_mark[hand] != mark)
+                        {
+                            reported_mark[hand] = mark;
+                            log("render: tracked %s hand projection F8=%u "
+                                "game near=%+.3f -> VR near=4.000 far=%.1f",
+                                hand == 0 ? "left" : "right", mark,
+                                gp.near_z, gp.far_z);
+                        }
                     }
+                    registers_from_matrix(times_head(paused_head,
+                        eye_matrix_shared(eyes[e], hand_projection, &share),
+                        head_identity, true), outs[e]);
                 }
-                registers_from_matrix(
-                    paused_head * vr_eye_matrix(eye, hand_projection), out);
                 return true;
             }
 
@@ -1375,7 +1703,10 @@ namespace trlvr
                 }
             }
 
-            registers_from_matrix(paused_head * vr_eye_matrix(eye, gp), out);
+            for (int e = 0; e < count; ++e)
+                registers_from_matrix(times_head(paused_head,
+                    eye_matrix_shared(eyes[e], gp, &share), head_identity,
+                    true), outs[e]);
             return true;
         }
 
@@ -1428,85 +1759,174 @@ namespace trlvr
             }
         }
 
-        if (g_world_capture > 0 && eye == EyeLeft)
-        {
-            --g_world_capture;
-            Mat4 v{}, v_inv{};
-            const Mat4 x = m * draw_projection_inv;
-            if (main_camera_wc(&v.m[0][0]) && invert(v, &v_inv))
+        // Per eye, in the original order (world capture on the left eye,
+        // then the sky test, then the matrix); the eye-independent parts --
+        // the camera inverse, the draw's world origin, M * P^-1 *
+        // paused_head -- are made on first use and reused by the second eye.
+        EyeMatrixShare share{};
+        EyeMatrixShare sky_share{};
+        bool have_origin = false;
+        bool origin_ok = false;
+        float origin[3]{};
+        bool have_world = false;
+        Mat4 world_head;                 // (m * P^-1) * paused_head
+        bool have_mp = false;
+        Mat4 mp;                         // m * P^-1
+        auto world_view = [&]() -> const Mat4& {
+            if (!have_mp)
             {
-                const Mat4 w = x * v_inv;
-                float retail[3]{}, at[3]{}, focus[3]{};
-                camera_frame_positions(retail, at, focus);
-                auto dist = [&](const float* a) {
-                    float d = 0.0f;
-                    for (int k = 0; k < 3; ++k)
-                        d += (w.m[3][k] - a[k]) * (w.m[3][k] - a[k]);
-                    return sqrtf(d);
-                };
-                bool known = false;
-                for (int i = 0; i < g_world_logged && !known; ++i)
-                    known = fabsf(g_world_seen[i][0] - w.m[3][0]) < 1.0f &&
-                            fabsf(g_world_seen[i][1] - w.m[3][1]) < 1.0f &&
-                            fabsf(g_world_seen[i][2] - w.m[3][2]) < 1.0f;
-                if (!known && g_world_logged < 40)
+                have_mp = true;
+                mp = m * draw_projection_inv;
+            }
+            return mp;
+        };
+        bool have_sky = false;
+        float sky_delta[3]{};
+        Mat4 sky_head;                   // ((T * m) * P^-1) * paused_head
+        for (int e = 0; e < count; ++e)
+        {
+            const Eye eye = eyes[e];
+            float* out = outs[e];
+            if (g_world_capture > 0 && eye == EyeLeft)
+            {
+                --g_world_capture;
+                Mat4 v{}, v_inv{};
+                const Mat4 x = m * draw_projection_inv;
+                if (main_camera_wc(&v.m[0][0]) && invert(v, &v_inv))
                 {
-                    for (int k = 0; k < 3; ++k)
-                        g_world_seen[g_world_logged][k] = w.m[3][k];
-                    ++g_world_logged;
-                    log("world capture %2d: origin (%.0f, %.0f, %.0f); %.0f "
-                        "from the retail camera, %.0f from the eye, %.0f from "
-                        "focus", g_world_logged, w.m[3][0], w.m[3][1],
-                        w.m[3][2], dist(retail), dist(at), dist(focus));
+                    const Mat4 w = x * v_inv;
+                    float retail[3]{}, at[3]{}, focus[3]{};
+                    camera_frame_positions(retail, at, focus);
+                    auto dist = [&](const float* a) {
+                        float d = 0.0f;
+                        for (int k = 0; k < 3; ++k)
+                            d += (w.m[3][k] - a[k]) * (w.m[3][k] - a[k]);
+                        return sqrtf(d);
+                    };
+                    bool known = false;
+                    for (int i = 0; i < g_world_logged && !known; ++i)
+                        known = fabsf(g_world_seen[i][0] - w.m[3][0]) < 1.0f &&
+                                fabsf(g_world_seen[i][1] - w.m[3][1]) < 1.0f &&
+                                fabsf(g_world_seen[i][2] - w.m[3][2]) < 1.0f;
+                    if (!known && g_world_logged < 40)
+                    {
+                        for (int k = 0; k < 3; ++k)
+                            g_world_seen[g_world_logged][k] = w.m[3][k];
+                        ++g_world_logged;
+                        log("world capture %2d: origin (%.0f, %.0f, %.0f); %.0f "
+                            "from the retail camera, %.0f from the eye, %.0f from "
+                            "focus", g_world_logged, w.m[3][0], w.m[3][1],
+                            w.m[3][2], dist(retail), dist(at), dist(focus));
+                    }
                 }
             }
-        }
-        // The sky dome: recentred on the VR eye, no eye separation.
-        {
-            Mat4 v_inv{};
-            if (main_camera_wc_inverse(&v_inv))
+            // The sky dome: recentred on the VR eye, no eye separation.
+            // The camera inverse and the draw's origin do not depend on the
+            // eye; the test itself runs per eye, since it counts calls.
+            if (!have_origin)
             {
-                const Mat4 w = m * draw_projection_inv * v_inv;
-                const float origin[3] = { w.m[3][0], w.m[3][1], w.m[3][2] };
-                float delta[3]{};
-                if (std::isfinite(origin[0]) && sky_pinned_draw(origin, delta))
+                have_origin = true;
+                Mat4 v_inv{};
+                if (main_camera_wc_inverse(&v_inv))
                 {
-                    g_sky_no_eye_offset = true;
-                    const Mat4 sky = translation(delta[0], delta[1], delta[2]) *
-                        m * draw_projection_inv * paused_head *
-                        vr_eye_matrix(eye, draw_projection);
-                    g_sky_no_eye_offset = false;
-                    registers_from_matrix(sky, out);
-                    return true;
+                    if (g_shared_math)
+                    {
+                        // Only row 3 of (m * P^-1) * v_inv is read: the
+                        // same sums operator* makes for those three floats.
+                        const Mat4& x = world_view();
+                        for (int j = 0; j < 3; ++j)
+                        {
+                            float sum = 0.0f;
+                            for (int k = 0; k < 4; ++k)
+                                sum += x.m[3][k] * v_inv.m[k][j];
+                            origin[j] = sum;
+                        }
+                    }
+                    else
+                    {
+                        const Mat4 w = m * draw_projection_inv * v_inv;
+                        origin[0] = w.m[3][0];
+                        origin[1] = w.m[3][1];
+                        origin[2] = w.m[3][2];
+                    }
+                    origin_ok = true;
                 }
             }
-        }
-        const Mat4 replaced = m * draw_projection_inv * paused_head *
-                              vr_eye_matrix(eye, draw_projection);
-        registers_from_matrix(replaced, out);
+            float delta[3]{};
+            if (origin_ok && std::isfinite(origin[0]) &&
+                sky_pinned_draw(origin, delta))
+            {
+                if (!have_sky || memcmp(delta, sky_delta, sizeof(delta)) != 0)
+                {
+                    have_sky = true;
+                    memcpy(sky_delta, delta, sizeof(delta));
+                    sky_head = times_head(
+                        translation(delta[0], delta[1], delta[2]) * m *
+                        draw_projection_inv, paused_head, head_identity, false);
+                }
+                g_sky_no_eye_offset = true;
+                const Mat4 eye_matrix =
+                    eye_matrix_shared(eye, draw_projection, &sky_share);
+                g_sky_no_eye_offset = false;
+                registers_from_matrix(sky_head * eye_matrix, out);
+                continue;
+            }
+            if (!have_world)
+            {
+                have_world = true;
+                world_head = times_head(world_view(), paused_head,
+                                        head_identity, false);
+            }
+            const Mat4 replaced = world_head *
+                eye_matrix_shared(eye, draw_projection, &share);
+            registers_from_matrix(replaced, out);
 
-        // Log one world-space draw per eye, exactly as uploaded. If the two
-        // differ only trivially then the eye offset is not reaching world
-        // geometry, whatever the maths says it should do -- which is what the
-        // headset reports: the offset moves the UI and leaves the world alone.
-        {
-            static bool logged[3] = { false, false, false };
-            const int e = (int)eye;
-            if (e >= 0 && e < 3 && !logged[e])
+            // Log one world-space draw per eye, exactly as uploaded. If the two
+            // differ only trivially then the eye offset is not reaching world
+            // geometry, whatever the maths says it should do -- which is what the
+            // headset reports: the offset moves the UI and leaves the world alone.
             {
-                logged[e] = true;
-                const char* names[3] = { "left", "right", "centre" };
-                log("world-space draw, %s eye -- incoming c0..c3:", names[e]);
-                for (int i = 0; i < 4; ++i)
-                    log("    in  c%d [ %12.5f %12.5f %12.5f %12.5f ]",
-                        i, in[i * 4 + 0], in[i * 4 + 1], in[i * 4 + 2], in[i * 4 + 3]);
-                log("  uploaded instead:");
-                for (int i = 0; i < 4; ++i)
-                    log("    out c%d [ %12.5f %12.5f %12.5f %12.5f ]",
-                        i, out[i * 4 + 0], out[i * 4 + 1], out[i * 4 + 2], out[i * 4 + 3]);
+                static bool logged[3] = { false, false, false };
+                const int ei = (int)eye;
+                if (ei >= 0 && ei < 3 && !logged[ei])
+                {
+                    logged[ei] = true;
+                    const char* names[3] = { "left", "right", "centre" };
+                    log("world-space draw, %s eye -- incoming c0..c3:", names[ei]);
+                    for (int i = 0; i < 4; ++i)
+                        log("    in  c%d [ %12.5f %12.5f %12.5f %12.5f ]",
+                            i, in[i * 4 + 0], in[i * 4 + 1], in[i * 4 + 2], in[i * 4 + 3]);
+                    log("  uploaded instead:");
+                    for (int i = 0; i < 4; ++i)
+                        log("    out c%d [ %12.5f %12.5f %12.5f %12.5f ]",
+                            i, out[i * 4 + 0], out[i * 4 + 1], out[i * 4 + 2], out[i * 4 + 3]);
+                }
             }
         }
         return true;
+    }
+
+    bool vr_substitute_c0_for_eye(const float* in, float* out, Eye eye)
+    {
+        float* outs[1] = { out };
+        return substitute_c0_eyes(in, 1, &eye, outs);
+    }
+
+    bool vr_substitute_c0_stereo(const float* in, float* out_left,
+                                 float* out_right)
+    {
+        if (!g_shared_math)
+        {
+            // [vr] stereo_shared_math = 0: the two legacy calls, for A/B.
+            // Both succeed or both fail (every failure above is decided
+            // before anything depends on the eye).
+            const bool left = vr_substitute_c0_for_eye(in, out_left, EyeLeft);
+            const bool right = vr_substitute_c0_for_eye(in, out_right, EyeRight);
+            return left && right;
+        }
+        const Eye eyes[2] = { EyeLeft, EyeRight };
+        float* outs[2] = { out_left, out_right };
+        return substitute_c0_eyes(in, 2, eyes, outs);
     }
 
     void vr_set_render_target_size(unsigned w, unsigned h)
@@ -3683,9 +4103,14 @@ namespace trlvr
 
     static void ingest_poses();
 
+    static void eye_cache_frame();
+    static void c0_capture_frame();
+
     void vr_update_pose()
     {
         sky_frame_boundary();
+        eye_cache_frame();
+        c0_capture_frame();
         if (!g_ready)
             return;
 
@@ -3734,7 +4159,19 @@ namespace trlvr
         ingest_poses();
     }
 
+    static void ingest_poses_body();
+
+    // g_head_view and g_pose_valid only change in here; the generation is
+    // bumped before and after, so nothing cached part way through (theatre
+    // and diorama updates run inside) outlives it.
     static void ingest_poses()
+    {
+        ++g_head_view_generation;
+        ingest_poses_body();
+        ++g_head_view_generation;
+    }
+
+    static void ingest_poses_body()
     {
         ++g_head_state_generation;
         const TrackedPose& hmd =
@@ -3818,16 +4255,240 @@ namespace trlvr
         g_head_view.m[3][2] *= ps;
     }
 
+    // The eye-independent inputs of one eye projection (M4). Everything that
+    // can change within a frame -- first person, accurate aim, movie, Mission
+    // Prep, the world/stereo scale, the zoom -- is read per call into this,
+    // and the matrix is a pure function of it, the eye, g_eyes and
+    // g_head_view. That is what makes the cache below exact.
+    static void eye_projection_inputs(const GameProjection& game,
+                                      bool stereo_eye, float zoom,
+                                      EyeProjInputs* out)
+    {
+        EyeProjInputs in{};
+        in.zoom = zoom;
+        // Mode 13 moves the camera into geometry that the original mono view
+        // never exposes to two laterally separated eyes. Its normal near plane
+        // can therefore cut a surface in just one eye. Four game units are
+        // about 14 mm at the calibrated scale: close enough for the shoulder
+        // camera without changing the depth range of normal gameplay.
+        float near_z = game.near_z;
+        // First person: always 4 units. Values above were already clamped;
+        // the retail near recovered from Lara-space projections also swings
+        // with head pitch and can go negative, which clips every close
+        // vertex (the ledge-hand fault, fixed earlier for tagged hand draws
+        // only). Drawn pistols and held gear are separate instances without
+        // that tag, and kept being drawn while vanishing near the view edge.
+        if (camera_first_person_active())
+        {
+            static bool invalid_reported = false;
+            if (near_z < 1.0f && !invalid_reported)
+            {
+                invalid_reported = true;
+                log("stereo: first-person projection near %.2f replaced by "
+                    "4.0 (retail near can go negative with head pitch)",
+                    near_z);
+            }
+            near_z = 4.0f;
+        }
+        else if (camera_accurate_aim_active() && near_z > 4.0f)
+        {
+            static bool announced = false;
+            if (!announced)
+            {
+                announced = true;
+                log("stereo: close-camera VR near plane %.1f -> 4.0 game "
+                    "units", near_z);
+            }
+            near_z = 4.0f;
+        }
+        in.near_z = near_z;
+
+        // (A board-view far-plane extension made no difference in the
+        // headset, 2026-10-03: the board camera is only ~700 units from the
+        // retail one. Removed.)
+        in.far_z = game.far_z;
+        in.flip = game.sy < 0.0f ? 1 : 0;
+        in.sky = g_sky_no_eye_offset ? 1 : 0;
+        in.stereo_eye = stereo_eye ? 1 : 0;
+        if (stereo_eye)
+        {
+            // Moving the camera to the eye is moving the world the other way.
+            // Except during Bink playback (MOVIE_StartPlay stores its handle at
+            // 0x0100257C): the movie is a flat quad a few units from the camera,
+            // so a real eye separation gave each eye a widely shifted copy. With
+            // no offset both eyes see it through their own frusta, converged at
+            // infinity like a distant screen.
+            // Mission Prep too: its close, staged shot of Lara behind the menu
+            // had full eye separation, so each eye saw her widely shifted and
+            // the screen could not be fused (user screenshot 2026-10-01).
+            const bool prep = ui_mission_prep_active();
+            const bool movie = movie_playing() || ui_loading_screen_active() ||
+                               prep;
+            static bool movie_reported = false;
+            if (movie && !movie_reported)
+            {
+                movie_reported = true;
+                log("stereo: movie playback drawn without eye separation");
+            }
+            static bool prep_reported = false;
+            if (prep && !prep_reported)
+            {
+                prep_reported = true;
+                log("stereo: Mission Prep scene drawn without eye separation "
+                    "(root screen %d)", ui_root_screen_id());
+            }
+            // Magnified: the eye separation shrinks with the zoom, as through
+            // real binoculars, so the enlarged image still fuses.
+            in.s = movie ? 0.0f
+                 : tune_world_scale() * tune_ipd_scale()
+                 * camera_stereo_scale() / zoom;
+        }
+        *out = in;
+    }
+
+    // The projection itself, from those inputs.
+    static Mat4 eye_projection_build(Eye eye, const EyeProjInputs& in)
+    {
+        const float zoom = in.zoom;
+        // A centre eye for the mono stage: the average of the two frusta and no
+        // lateral offset, so the single image is not shot from one eyeball.
+        if (eye == EyeCenter)
+        {
+            const EyeInfo& l = g_eyes[EyeLeft];
+            const EyeInfo& r = g_eyes[EyeRight];
+            EyeInfo c{};
+            c.tan_left   = 0.5f * (l.tan_left + r.tan_left) / zoom;
+            c.tan_right  = 0.5f * (l.tan_right + r.tan_right) / zoom;
+            c.tan_top    = 0.5f * (l.tan_top + r.tan_top) / zoom;
+            c.tan_bottom = 0.5f * (l.tan_bottom + r.tan_bottom) / zoom;
+
+            // No prescale correction here -- vr_eye_matrix undoes it in front
+            // of the whole chain, so this stays a plain headset projection.
+            return projection_from_tangents(c.tan_left, c.tan_right,
+                                            c.tan_top, c.tan_bottom,
+                                            in.near_z, in.far_z,
+                                            in.flip != 0);
+        }
+
+        const EyeInfo& info = g_eyes[eye];
+
+        // The game's own near and far, so depth precision, fog and any clip
+        // planes behave exactly as they always did. Only the frustum shape
+        // changes.
+        Mat4 proj = projection_from_tangents(info.tan_left / zoom,
+                                             info.tan_right / zoom,
+                                             info.tan_top / zoom,
+                                             info.tan_bottom / zoom,
+                                             in.near_z, in.far_z,
+                                             in.flip != 0);
+        return (in.sky ? Mat4::identity()
+                       : eye_from_head(info, in.s)) * proj;
+    }
+
+    // Per-frame eye matrix cache (M4). Keyed on the eye, the inputs above,
+    // whether the head view is composed in, and the generations of g_eyes
+    // and g_head_view -- every value the matrix is built from -- so a hit
+    // returns exactly what building it would. Cleared at each frame
+    // boundary as well, so it never holds more than a frame's projections.
+    namespace
+    {
+        struct EyeCacheKey
+        {
+            EyeProjInputs in;
+            int eye;
+            int use_head;
+            unsigned eyes_generation;
+            unsigned head_generation;
+        };
+        struct EyeCacheEntry
+        {
+            EyeCacheKey key;
+            Mat4 value;
+        };
+        const int kEyeCacheSlots = 8;
+        EyeCacheEntry g_eye_cache[3][kEyeCacheSlots];
+        int g_eye_cache_used[3] = { 0, 0, 0 };
+        int g_eye_cache_next[3] = { 0, 0, 0 };
+        unsigned g_eye_cache_hits = 0, g_eye_cache_misses = 0;
+    }
+
+    static void eye_cache_clear()
+    {
+        for (int i = 0; i < 3; ++i)
+            g_eye_cache_used[i] = g_eye_cache_next[i] = 0;
+    }
+
+    static bool eye_use_head()
+    {
+        return config().head_tracking && g_pose_valid &&
+               !config().hmd_drives_camera;
+    }
+
+    static Mat4 eye_matrix_from_inputs(Eye eye, const EyeProjInputs& in,
+                                       bool use_head)
+    {
+        const int e = (int)eye;
+        if (!g_eye_cache_on || e < 0 || e > 2)
+        {
+            // With the camera carrying the head pose, the projection is the
+            // eye offset and the headset frustum and nothing else. One owner
+            // for the head, which is the whole point of the rewrite.
+            if (!use_head)
+                return eye_projection_build(eye, in);
+            return g_head_view * eye_projection_build(eye, in);
+        }
+        EyeCacheKey key;
+        memset(&key, 0, sizeof(key));
+        key.in = in;
+        key.eye = e;
+        key.use_head = use_head ? 1 : 0;
+        key.eyes_generation = g_eyes_generation;
+        key.head_generation = g_head_view_generation;
+        for (int i = 0; i < g_eye_cache_used[e]; ++i)
+            if (memcmp(&g_eye_cache[e][i].key, &key, sizeof(key)) == 0)
+            {
+                ++g_eye_cache_hits;
+                return g_eye_cache[e][i].value;
+            }
+        ++g_eye_cache_misses;
+        const Mat4 value = use_head
+            ? g_head_view * eye_projection_build(eye, in)
+            : eye_projection_build(eye, in);
+        EyeCacheEntry& slot = g_eye_cache[e][g_eye_cache_next[e]];
+        slot.key = key;
+        slot.value = value;
+        g_eye_cache_next[e] = (g_eye_cache_next[e] + 1) % kEyeCacheSlots;
+        if (g_eye_cache_used[e] < kEyeCacheSlots)
+            ++g_eye_cache_used[e];
+        return value;
+    }
+
+    // vr_eye_matrix for the eyes of one substitution call: binocular_zoom
+    // runs per eye (its learning counts calls, as two vr_eye_matrix calls
+    // did), the other inputs are read once and reused while they cannot have
+    // changed -- same game projection, zoom, sky flag and kind of eye.
+    static Mat4 eye_matrix_shared(Eye eye, const GameProjection& game,
+                                  EyeMatrixShare* share)
+    {
+        const float zoom = binocular_zoom(game);
+        const bool use_head = eye_use_head();
+        const int stereo_eye = eye != EyeCenter ? 1 : 0;
+        const int sky = g_sky_no_eye_offset ? 1 : 0;
+        if (!g_shared_math || !share->valid ||
+            memcmp(&share->zoom, &zoom, sizeof(zoom)) != 0 ||
+            share->in.stereo_eye != stereo_eye || share->in.sky != sky)
+        {
+            eye_projection_inputs(game, stereo_eye != 0, zoom, &share->in);
+            share->zoom = zoom;
+            share->valid = true;
+        }
+        return eye_matrix_from_inputs(eye, share->in, use_head);
+    }
+
     Mat4 vr_eye_matrix(Eye eye, const GameProjection& game)
     {
-        // With the camera carrying the head pose, the projection is the eye
-        // offset and the headset frustum and nothing else. One owner for the
-        // head, which is the whole point of the rewrite.
-        if (!config().head_tracking || !g_pose_valid ||
-            config().hmd_drives_camera)
-            return vr_eye_projection(eye, game);
-
-        return g_head_view * vr_eye_projection(eye, game);
+        EyeMatrixShare share{};
+        return eye_matrix_shared(eye, game, &share);
     }
 
     // Binocular magnification. The VR frustum is the headset's own, so the
@@ -3897,113 +4558,24 @@ namespace trlvr
     Mat4 vr_eye_projection(Eye eye, const GameProjection& game)
     {
         const float zoom = binocular_zoom(game);
-        // Mode 13 moves the camera into geometry that the original mono view
-        // never exposes to two laterally separated eyes. Its normal near plane
-        // can therefore cut a surface in just one eye. Four game units are
-        // about 14 mm at the calibrated scale: close enough for the shoulder
-        // camera without changing the depth range of normal gameplay.
-        float near_z = game.near_z;
-        // First person: always 4 units. Values above were already clamped;
-        // the retail near recovered from Lara-space projections also swings
-        // with head pitch and can go negative, which clips every close
-        // vertex (the ledge-hand fault, fixed earlier for tagged hand draws
-        // only). Drawn pistols and held gear are separate instances without
-        // that tag, and kept being drawn while vanishing near the view edge.
-        if (camera_first_person_active())
-        {
-            static bool invalid_reported = false;
-            if (near_z < 1.0f && !invalid_reported)
-            {
-                invalid_reported = true;
-                log("stereo: first-person projection near %.2f replaced by "
-                    "4.0 (retail near can go negative with head pitch)",
-                    near_z);
-            }
-            near_z = 4.0f;
-        }
-        else if (camera_accurate_aim_active() && near_z > 4.0f)
-        {
-            static bool announced = false;
-            if (!announced)
-            {
-                announced = true;
-                log("stereo: close-camera VR near plane %.1f -> 4.0 game "
-                    "units", near_z);
-            }
-            near_z = 4.0f;
-        }
+        EyeProjInputs in{};
+        eye_projection_inputs(game, eye != EyeCenter, zoom, &in);
+        return eye_projection_build(eye, in);
+    }
 
-        // (A board-view far-plane extension made no difference in the
-        // headset, 2026-10-03: the board camera is only ~700 units from the
-        // retail one. Removed.)
-        const float far_z = game.far_z;
+    // M4 settings and diagnostics.
+    void vr_set_stereo_shared_math(bool shared, bool eye_cache)
+    {
+        g_shared_math = shared;
+        g_eye_cache_on = eye_cache;
+        eye_cache_clear();
+    }
 
-        // A centre eye for the mono stage: the average of the two frusta and no
-        // lateral offset, so the single image is not shot from one eyeball.
-        if (eye == EyeCenter)
-        {
-            const EyeInfo& l = g_eyes[EyeLeft];
-            const EyeInfo& r = g_eyes[EyeRight];
-            EyeInfo c{};
-            c.tan_left   = 0.5f * (l.tan_left + r.tan_left) / zoom;
-            c.tan_right  = 0.5f * (l.tan_right + r.tan_right) / zoom;
-            c.tan_top    = 0.5f * (l.tan_top + r.tan_top) / zoom;
-            c.tan_bottom = 0.5f * (l.tan_bottom + r.tan_bottom) / zoom;
+    bool vr_stereo_shared_math() { return g_shared_math; }
 
-            // No prescale correction here -- vr_eye_matrix undoes it in front
-            // of the whole chain, so this stays a plain headset projection.
-            return projection_from_tangents(c.tan_left, c.tan_right,
-                                            c.tan_top, c.tan_bottom,
-                                            near_z, far_z,
-                                            game.sy < 0.0f);
-        }
-
-        const EyeInfo& in = g_eyes[eye];
-
-        // The game's own near and far, so depth precision, fog and any clip
-        // planes behave exactly as they always did. Only the frustum shape
-        // changes.
-        Mat4 proj = projection_from_tangents(in.tan_left / zoom,
-                                             in.tan_right / zoom,
-                                             in.tan_top / zoom,
-                                             in.tan_bottom / zoom,
-                                             near_z, far_z,
-                                             game.sy < 0.0f);
-
-
-        // Moving the camera to the eye is moving the world the other way.
-        // Except during Bink playback (MOVIE_StartPlay stores its handle at
-        // 0x0100257C): the movie is a flat quad a few units from the camera,
-        // so a real eye separation gave each eye a widely shifted copy. With
-        // no offset both eyes see it through their own frusta, converged at
-        // infinity like a distant screen.
-        // Mission Prep too: its close, staged shot of Lara behind the menu
-        // had full eye separation, so each eye saw her widely shifted and
-        // the screen could not be fused (user screenshot 2026-10-01).
-        const bool prep = ui_mission_prep_active();
-        const bool movie = movie_playing() || ui_loading_screen_active() ||
-                           prep;
-        static bool movie_reported = false;
-        if (movie && !movie_reported)
-        {
-            movie_reported = true;
-            log("stereo: movie playback drawn without eye separation");
-        }
-        static bool prep_reported = false;
-        if (prep && !prep_reported)
-        {
-            prep_reported = true;
-            log("stereo: Mission Prep scene drawn without eye separation "
-                "(root screen %d)", ui_root_screen_id());
-        }
-        // Magnified: the eye separation shrinks with the zoom, as through
-        // real binoculars, so the enlarged image still fuses.
-        const float s = movie ? 0.0f
-                      : tune_world_scale() * tune_ipd_scale()
-                      * camera_stereo_scale() / zoom;
-        return (g_sky_no_eye_offset ? Mat4::identity()
-                                    : eye_from_head(in, s)) * proj;
+    void vr_eye_cache_stats(unsigned* hits, unsigned* misses)
+    {
+        if (hits) *hits = g_eye_cache_hits;
+        if (misses) *misses = g_eye_cache_misses;
     }
 }
-
-

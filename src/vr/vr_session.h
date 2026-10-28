@@ -311,6 +311,80 @@ namespace trlvr
     bool vr_head_clip_matrix(Eye eye, float out[4][4]);
     bool vr_substitute_c0_for_eye(const float* in_regs16, float* out_regs16, Eye eye);
 
+    // Both eyes of one draw in one call (M4). Exactly the 32 floats, return
+    // value and side effects of vr_substitute_c0_for_eye(in, out_left,
+    // EyeLeft) followed by vr_substitute_c0_for_eye(in, out_right, EyeRight)
+    // -- binocular zoom learning and the sky test's call counter still
+    // advance once per eye, left then right -- with the eye-independent work
+    // (state checks, projection recovery, P^-1, paused_head, the sky's world
+    // origin, UI anchors, shared left factors) done once. Success is never
+    // eye-dependent: false leaves both outputs untouched. With
+    // [vr] stereo_shared_math = 0 it simply makes those two calls.
+    bool vr_substitute_c0_stereo(const float* in_regs16, float* out_left16,
+                                 float* out_right16);
+
+    // [vr] stereo_shared_math (read at vr_init; default on). eye_cache is the
+    // per-frame vr_eye_matrix cache, which serves every caller, single-eye
+    // ones included. Tests switch them separately.
+    void vr_set_stereo_shared_math(bool shared, bool eye_cache);
+    bool vr_stereo_shared_math();
+    void vr_eye_cache_stats(unsigned* hits, unsigned* misses);
+
+    // [vr] vr_capture_c0 = 1 (debug): append the game's c0 and the mode
+    // state the substitution reads to c0_capture.bin beside the game, one
+    // record per substitution call (at most 256 a frame, 20000 in all), for
+    // src/test/mathtest.sh to replay. Little-endian, 4-byte fields.
+    enum C0CaptureFlag : unsigned
+    {
+        C0CapUiPassthrough    = 1u << 0,
+        C0CapInterface        = 1u << 1,
+        C0CapScreenWipe       = 1u << 2,
+        C0CapMovie            = 1u << 3,
+        C0CapLoading          = 1u << 4,
+        C0CapMissionPrep      = 1u << 5,
+        C0CapPda              = 1u << 6,
+        C0CapMenu             = 1u << 7,
+        C0CapPause            = 1u << 8,
+        C0CapWorldLocked      = 1u << 9,
+        C0CapMarker           = 1u << 10,
+        C0CapFirstPerson      = 1u << 11,
+        C0CapAccurateAim      = 1u << 12,
+        C0CapBinocular        = 1u << 13,
+        C0CapTheatre          = 1u << 14,
+        C0CapPoseValid        = 1u << 15,
+        C0CapHmdDrivesCamera  = 1u << 16,
+        C0CapGameProjKnown    = 1u << 17,
+        C0CapPauseWorldLocked = 1u << 18,
+        C0CapMenuWorldLocked  = 1u << 19,
+        C0CapHeadTracking     = 1u << 20,
+        C0CapCameraOk         = 1u << 21,
+        C0CapMainWcOk         = 1u << 22,
+    };
+    enum C0CaptureScalar
+    {
+        C0CapUiScale, C0CapHudFollow, C0CapWorldScale, C0CapWorldScaleFactor,
+        C0CapStereoScale, C0CapTheatreScale, C0CapMarkerDepth,
+        C0CapMarkerDistance, C0CapHudOffsetX, C0CapHudOffsetY,
+        C0CapTurnScale, C0CapYawOffset, C0CapScalarCount
+    };
+    struct C0CaptureRecord
+    {
+        char magic[4];             // "C0R1"
+        unsigned frame;
+        int eye;                   // 0 left, 1 right, 2 centre, 3 both
+        unsigned flags;            // C0CaptureFlag
+        int gpu_hand;
+        int root_screen;
+        float c0[16];              // the game's registers
+        float hmd_pose[12];        // runtime head pose, 3x4 row-major
+        float eye_views[2][16];    // tangents l r t b, then eye-to-head 3x4
+        float game_proj[8];        // sx sy ox oy q near far, known
+        float scalars[C0CapScalarCount];
+        float camera[9];           // retail, eye, focus
+        float main_wc[16];         // game main camera world->camera
+    };
+    void vr_c0_capture_enable(bool on);
+
     // Remember what the game asked for and what we uploaded instead, so a
     // draw can revisit the decision. The state that identifies the interface
     // -- depth testing off -- is not set until after the matrix is uploaded,
