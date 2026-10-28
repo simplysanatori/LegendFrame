@@ -118,3 +118,6 @@ subset of its vertices. *Fix:* apply the same mask in the static path.
 
 
 Update (lane/sps-def-fix): cause E was investigated and fixed differently: the static path already folds def'd registers, but getStereoDynamicBankMask() compared srcIndex instead of dstIndex, so a relative read (c[a0.x+N]) landing on a def'd c0..c3 register was replaced by the per-eye bank. Fixed in 5ef1383 with harness case `defconst`.
+
+
+Update (lane/god-carry2, 5a63477): root cause confirmed from the owner's 0.1.3 log. Once Lara is wet or dirty the game draws overlay model 039bb900 on her instance; FX_WetDirtyDraw (0x0044C2A0) builds the overlay's 43 blended-joint matrices into a separate array (pointer at 0x0107F730) BEFORE the DrawInstance hook runs, so carry_apply never moves them and the overlay seams (belt, boots, shirt) stay at the pick-up spot. Fix: with god_carry_fix=1 the hook re-runs the game's builder on the pose as drawn for overlay draws. The earlier "second model matrices" theory was partly right: no separate full array, only the blended joints.
