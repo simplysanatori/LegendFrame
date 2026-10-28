@@ -95,6 +95,54 @@ namespace trlvr
             unsigned arm_calls;
         };
         StereoCounts g_counts{};
+
+        // Cost of the arm call and of the whole single-pass begin, summed
+        // over the 5 s interval (only timed while [vr] stereo_stats is on).
+        // The begin figure excludes the matrix maths (perf cpu has that) but
+        // includes the arm call.
+        struct StereoTimes
+        {
+            double arm_ms;
+            double begin_ms;
+            unsigned arm_skipped;
+            unsigned frames;    // EndScenes, taken as frames
+        };
+        StereoTimes g_times{};
+        LARGE_INTEGER g_qpc_freq{};
+
+        LONGLONG qpc_now()
+        {
+            LARGE_INTEGER t{};
+            QueryPerformanceCounter(&t);
+            return t.QuadPart;
+        }
+
+        double qpc_ms(LONGLONG from, LONGLONG to)
+        {
+            return double(to - from) * 1000.0 / double(g_qpc_freq.QuadPart);
+        }
+
+        // Times stereo_single_begin on every return path.
+        struct BeginTimer
+        {
+            bool on;
+            LONGLONG start = 0;
+            double math_ms = 0.0;
+            BeginTimer() : on(config().stereo_stats)
+            {
+                if (on)
+                {
+                    if (!g_qpc_freq.QuadPart)
+                        QueryPerformanceFrequency(&g_qpc_freq);
+                    start = qpc_now();
+                }
+            }
+            ~BeginTimer()
+            {
+                if (on)
+                    g_times.begin_ms += qpc_ms(start, qpc_now()) - math_ms;
+            }
+        };
         bool g_stats_started = false;
         DWORD g_stats_tick = 0;
         UINT g_dxvk_rejected_seen = 0;
@@ -391,21 +439,26 @@ namespace trlvr
         // Both eyes, left first, as the two passes call it: the
         // substitution has per-call side effects (the sky-pinning learner
         // counts calls, the binocular zoom EMA steps per call).
+        BeginTimer timer;
         const float* game = vr_game_c0();
         if (vr_stereo_shared_math())
         {
             // M4: one call for both eyes, bit-identical to the two below.
             // It never fails for one eye only, and on failure writes
             // neither output (the carry-over below fills both).
+            const LONGLONG m0 = timer.on ? qpc_now() : 0;
             perf_cpu_begin(PerfDrawMath);
             const bool ok = vr_substitute_c0_stereo(game, draw->c0[0],
                                                     draw->c0[1]);
             perf_cpu_end(PerfDrawMath);
+            if (timer.on)
+                timer.math_ms += qpc_ms(m0, qpc_now());
             draw->substituted[0] = ok;
             draw->substituted[1] = ok;
         }
         else
         {
+            const LONGLONG m0 = timer.on ? qpc_now() : 0;
             for (int e = 0; e < 2; ++e)
             {
                 perf_cpu_begin(PerfDrawMath);
@@ -413,6 +466,8 @@ namespace trlvr
                     game, draw->c0[e], e == 0 ? EyeLeft : EyeRight);
                 perf_cpu_end(PerfDrawMath);
             }
+            if (timer.on)
+                timer.math_ms += qpc_ms(m0, qpc_now());
         }
 
         // The two passes only upload on success, so a failed eye draws with
@@ -442,8 +497,11 @@ namespace trlvr
         if (!g_armed || eye_w != g_armed_w || eye_h != g_armed_h ||
             std::memcmp(g_armed_c0, draw->c0, sizeof(g_armed_c0)) != 0)
         {
+            const LONGLONG a0 = timer.on ? qpc_now() : 0;
             const HRESULT hr = g_sps->SetStereoDraw(draw->c0[0], draw->c0[1],
                                                     eye_w, eye_h);
+            if (timer.on)
+                g_times.arm_ms += qpc_ms(a0, qpc_now());
             if (FAILED(hr))
             {
                 stereo_disarm();
@@ -458,6 +516,8 @@ namespace trlvr
             g_armed = true;
             ++g_counts.arm_calls;
         }
+        else
+            ++g_times.arm_skipped;
         ++g_counts.single;
         return true;
     }
@@ -527,6 +587,7 @@ namespace trlvr
             g_stats_started = false;
             return;
         }
+        ++g_times.frames;
         const DWORD now = GetTickCount();
         if (!g_stats_started)
         {
@@ -534,6 +595,7 @@ namespace trlvr
             g_stats_started = true;
             g_stats_tick = now;
             g_counts = StereoCounts{};
+            g_times = StereoTimes{};
             if (g_sps)
                 g_sps->GetStereoStats(nullptr, &g_dxvk_rejected_seen);
             return;
@@ -551,13 +613,17 @@ namespace trlvr
         g_dxvk_rejected_seen = rejected_total;
 
         const StereoCounts& c = g_counts;
+        const double frames = g_times.frames ? double(g_times.frames) : 1.0;
         const unsigned fallback = c.eye_textures + c.fixed_function +
             c.instanced + c.reflection;
         log("stereo stats: single %u, fallback %u (eye-textures %u, "
             "fixed-function %u, instanced %u, reflection %u), mono %u, "
-            "arm calls %u, dxvk rejected %u", c.single, fallback,
+            "arm calls %u, dxvk rejected %u, arm %.2f ms/frame (%u calls, "
+            "%u skipped), begin %.2f ms/frame", c.single, fallback,
             c.eye_textures, c.fixed_function, c.instanced, c.reflection,
-            c.mono, c.arm_calls, rejected);
+            c.mono, c.arm_calls, rejected, g_times.arm_ms / frames,
+            c.arm_calls, g_times.arm_skipped, g_times.begin_ms / frames);
         g_counts = StereoCounts{};
+        g_times = StereoTimes{};
     }
 }
