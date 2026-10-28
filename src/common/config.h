@@ -32,7 +32,7 @@ namespace trlvr
         // 1.1.0 behaviour). 0 skips that wait and relies on queue order:
         // DXVK's work is flushed and handed to vkQueueSubmit before the
         // compositor's copy goes on the same queue (LockSubmissionQueue).
-        bool submit_wait = true;
+        bool submit_wait = false;
         // OpenXR: convert the controllers' grip pose to the OpenVR grip pose
         // the hand tuning was made against (known for Reverb G2 and Touch).
         bool xr_grip_match_openvr = true;
@@ -45,7 +45,7 @@ namespace trlvr
         // (one draw, both eyes by viewport index in our DXVK fork; falls
         // back to two-pass per draw, or entirely if DXVK cannot do it).
         // stereo_same_frame = 0 (alternate eyes) overrides both.
-        int stereo_mode = 0;
+        int stereo_mode = 1;
         // Logs a "stereo stats:" line every 5 s (single-pass and fallback
         // draw counts).
         bool stereo_stats = false;
