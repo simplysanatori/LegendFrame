@@ -267,6 +267,14 @@ namespace trlvr
                     kind = XrControllerTouch;
                     profile = "/interaction_profiles/oculus/touch_controller";
                 }
+                else if (strstr(type, "frame_controller"))
+                {
+                    // Steam Frame controllers (native SteamVR binding): Touch
+                    // class layout, so reuse the Touch kind and profile.
+                    kind = XrControllerTouch;
+                    profile = "/interaction_profiles/oculus/touch_controller";
+                    log("controls: Steam Frame controllers detected -> Touch profile");
+                }
                 else if (strstr(type, "knuckles"))
                 {
                     kind = XrControllerIndex;
