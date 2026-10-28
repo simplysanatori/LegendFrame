@@ -27,6 +27,13 @@ namespace trlvr
         PerfBucketCount
     };
 
+    // Global switch, default on. Off: begin/end/draw/Present hooks return at
+    // one predictable branch and perf_cpu_report logs nothing. Flipping it
+    // restarts the measuring interval.
+    void perf_cpu_set_enabled(bool enabled);
+    bool perf_cpu_enabled();
+
+    // Timed with rdtsc (see perf_cpu.cpp), converted to ms at each report.
     void perf_cpu_begin(PerfBucket bucket);
     void perf_cpu_end(PerfBucket bucket);
 
