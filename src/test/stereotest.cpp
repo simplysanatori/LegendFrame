@@ -64,7 +64,7 @@ static bool parse_guid(const char* s, GUID* g) {
 typedef std::vector<DWORD> Code;
 enum { T_TEMP = 0, T_INPUT = 1, T_CONST = 2, T_ADDR = 3, T_OUTPUT = 6, T_COLOROUT = 8, T_LABEL = 18 };
 enum { OP_MOV = 1, OP_MUL = 5, OP_DP4 = 9, OP_CALL = 25, OP_RET = 28, OP_LABEL = 30, OP_DCL = 31,
-       OP_MOVA = 46 };
+       OP_MOVA = 46, OP_DEF = 81 };
 enum { U_POSITION = 0, U_TEXCOORD = 5, U_COLOR = 10 };
 static DWORD regtok(int type, int num) {
   return 0x80000000u | ((DWORD)(type & 7) << 28) | ((DWORD)(type & 0x18) << 8) | (DWORD)(num & 0x7ff);
@@ -107,10 +107,34 @@ static void emit_pos_relative(Code& c) {
 static void emit_color(Code& c) {   // o1 = v1 * c4 (c4 is outside the stereo bank)
   ins(c, OP_MUL, {dst(T_OUTPUT, 1), src(T_INPUT, 1), src(T_CONST, 4)});
 }
-static Code build_vs(int kind) {   // 0 static, 1 relative a0, 2 call/ret
+static void emit_def(Code& c, int reg, float x, float y, float z, float w) {
+  float f[4] = {x, y, z, w};
+  c.push_back(OP_DEF | (5u << 24));
+  c.push_back(dst(T_CONST, reg));
+  for (float v : f) { DWORD d; memcpy(&d, &v, 4); c.push_back(d); }
+}
+static Code build_vs(int kind) {   // 0 static, 1 relative a0, 2 call/ret, 3 def'd c2 (+ c5)
   Code c;
-  vs_header(c, kind == 1);
-  if (kind == 0) {
+  vs_header(c, kind == 1 || kind == 3);
+  if (kind == 3) {
+    // c2 is shader-defined: it must keep its own value in both eyes, not become the
+    // per-eye bank c2. Statically indexed def reads fold to immediates, so the read
+    // that matters is relative: x = v.c[a0.x+2] (a0.x = 0 -> def'd c2, dynamic layout),
+    // y = v.c1, z = v.c5 (def), w = v.c3. The def data index of c2 is 0, its register
+    // is 2; the bank mask must use the register.
+    emit_def(c, 2, 0.60f, 0.00f, 0.00f, 0.10f);
+    emit_def(c, 5, 0.00f, 0.00f, 0.00f, 0.50f);
+    ins(c, OP_MOVA, {dst(T_ADDR, 0, 1), src(T_INPUT, 2, SWZ_X)});
+    c.push_back(OP_DP4 | (4u << 24));
+    c.push_back(dst(T_OUTPUT, 0, 1));
+    c.push_back(src(T_INPUT, 0));
+    emit_rel_const(c, 2);
+    c.push_back(regtok(T_ADDR, 0) | (SWZ_X << 16));
+    ins(c, OP_DP4, {dst(T_OUTPUT, 0, 2), src(T_INPUT, 0), src(T_CONST, 1)});
+    ins(c, OP_DP4, {dst(T_OUTPUT, 0, 4), src(T_INPUT, 0), src(T_CONST, 5)});
+    ins(c, OP_DP4, {dst(T_OUTPUT, 0, 8), src(T_INPUT, 0), src(T_CONST, 3)});
+    emit_color(c);
+  } else if (kind == 0) {
     emit_pos_static(c); emit_color(c);
   } else if (kind == 1) {
     ins(c, OP_MOVA, {dst(T_ADDR, 0, 1), src(T_INPUT, 2, SWZ_X)});
@@ -170,7 +194,7 @@ struct Env {
   HRESULT hrQI = E_NOINTERFACE, hrEnable = E_NOINTERFACE;
   int W = 256, H = 256;
   IDirect3DSurface9 *rt1 = nullptr, *rtMS = nullptr, *sys = nullptr;
-  IDirect3DVertexShader9* vs[3] = {};
+  IDirect3DVertexShader9* vs[4] = {};
   IDirect3DPixelShader9* ps = nullptr;
   IDirect3DVertexDeclaration9 *decl = nullptr, *declInst = nullptr;
   IDirect3DVertexBuffer9 *vb = nullptr, *vbInst = nullptr;
@@ -190,7 +214,7 @@ static bool failhr(const char* what, HRESULT hr) {
 
 static bool setup_resources() {
   IDirect3DDevice9* d = E.dev;
-  for (int k = 0; k < 3; k++) {
+  for (int k = 0; k < 4; k++) {
     Code c = build_vs(k);
     TRY(d->CreateVertexShader(c.data(), &E.vs[k]));
   }
@@ -553,6 +577,7 @@ int main(int argc, char** argv) {
   if (want("static") || only.empty()) { p = Params(); case_image("static", p, nullptr, &g_staticTwo); }
   if (want("reladdr")) { p = Params(); p.vs = 1; case_image("reladdr", p, &g_staticTwo, nullptr); }
   if (want("call"))    { p = Params(); p.vs = 2; case_image("call", p, &g_staticTwo, nullptr); }
+  if (want("defconst")) { p = Params(); p.vs = 3; case_image("defconst", p, nullptr, nullptr); }
   if (want("msaa2")) {
     if (!E.msaaOk) { rows.push_back({"msaa2", "-", "-", "2x MSAA unsupported", SKIP, -1, -1}); }
     else { p = Params(); p.msaa = true; case_image("msaa2", p, nullptr, nullptr); }
