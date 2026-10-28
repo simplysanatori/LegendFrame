@@ -43,7 +43,9 @@
 
 #include "d3d9_vr.h"
 
+#include <cstdint>
 #include <cstring>
+#include <intrin.h>
 
 namespace trlvr
 {
@@ -98,17 +100,31 @@ namespace trlvr
 
         // Cost of the arm call and of the whole single-pass begin, summed
         // over the 5 s interval (only timed while [vr] stereo_stats is on).
-        // The begin figure excludes the matrix maths (perf cpu has that) but
-        // includes the arm call.
+        // The begin figure runs from the end of the matrix maths (perf cpu
+        // has that) to the return, so it includes the arm call.
+        //
+        // Timed with the TSC, not QueryPerformanceCounter: under FEX/Wine
+        // on the Frame a QPC is a wow64 syscall, ~150 ns against ~40 ns for
+        // an rdtsc (measured 2026-10-28), and the old four QPCs per draw
+        // were most of what the begin figure reported. Ticks are turned into
+        // ms at each report against QPC over the same interval, so no TSC
+        // frequency is assumed. Stats only: no draw decision reads these.
         struct StereoTimes
         {
-            double arm_ms;
-            double begin_ms;
+            unsigned long long arm_ticks;
+            unsigned long long begin_ticks;
             unsigned arm_skipped;
             unsigned frames;    // EndScenes, taken as frames
         };
         StereoTimes g_times{};
-        LARGE_INTEGER g_qpc_freq{};
+
+        // [vr] stereo_stats, read once per frame at EndScene instead of per
+        // draw. Behaviour-preserving: it only gates timers, and the first
+        // EndScene that sees it on resets the counters before anything is
+        // reported (as before), so a frame of lag changes no reported value.
+        bool g_stats_on = false;
+        LONGLONG g_stats_qpc = 0;               // QPC at the interval start
+        unsigned long long g_stats_tsc = 0;     // TSC at the interval start
 
         LONGLONG qpc_now()
         {
@@ -117,32 +133,39 @@ namespace trlvr
             return t.QuadPart;
         }
 
-        double qpc_ms(LONGLONG from, LONGLONG to)
-        {
-            return double(to - from) * 1000.0 / double(g_qpc_freq.QuadPart);
-        }
-
-        // Times stereo_single_begin on every return path.
+        // Times stereo_single_begin from the end of the maths to every
+        // return path; with stats off it is a test of one cached bool.
         struct BeginTimer
         {
-            bool on;
-            LONGLONG start = 0;
-            double math_ms = 0.0;
-            BeginTimer() : on(config().stereo_stats)
+            unsigned long long start = 0;
+            BeginTimer()
             {
-                if (on)
-                {
-                    if (!g_qpc_freq.QuadPart)
-                        QueryPerformanceFrequency(&g_qpc_freq);
-                    start = qpc_now();
-                }
+                if (g_stats_on)
+                    start = __rdtsc();
             }
             ~BeginTimer()
             {
-                if (on)
-                    g_times.begin_ms += qpc_ms(start, qpc_now()) - math_ms;
+                if (g_stats_on)
+                    g_times.begin_ticks += __rdtsc() - start;
             }
         };
+
+        // memcmp(a, b, sizeof(float[2][16])) != 0 without the call into
+        // msvcrt (an emulated cross-DLL call under FEX, ~3x the inline
+        // compare). Bitwise like memcmp -- -0.0 vs 0.0 and NaN payloads
+        // still count as different -- so the sticky decision is identical.
+        bool bank_differs(const float (&a)[2][16], const float (&b)[2][16])
+        {
+            uint32_t acc = 0;
+            for (int i = 0; i < 32; ++i)
+            {
+                uint32_t x, y;
+                std::memcpy(&x, &a[i >> 4][i & 15], sizeof(x));
+                std::memcpy(&y, &b[i >> 4][i & 15], sizeof(y));
+                acc |= x ^ y;
+            }
+            return acc != 0;
+        }
         bool g_stats_started = false;
         DWORD g_stats_tick = 0;
         UINT g_dxvk_rejected_seen = 0;
@@ -438,27 +461,25 @@ namespace trlvr
     {
         // Both eyes, left first, as the two passes call it: the
         // substitution has per-call side effects (the sky-pinning learner
-        // counts calls, the binocular zoom EMA steps per call).
-        BeginTimer timer;
+        // counts calls, the binocular zoom EMA steps per call), so it runs
+        // on every draw even when its inputs are unchanged -- skipping it
+        // would change those learners, so the sticky test stays on the
+        // output bank.
         const float* game = vr_game_c0();
         if (vr_stereo_shared_math())
         {
             // M4: one call for both eyes, bit-identical to the two below.
             // It never fails for one eye only, and on failure writes
             // neither output (the carry-over below fills both).
-            const LONGLONG m0 = timer.on ? qpc_now() : 0;
             perf_cpu_begin(PerfDrawMath);
             const bool ok = vr_substitute_c0_stereo(game, draw->c0[0],
                                                     draw->c0[1]);
             perf_cpu_end(PerfDrawMath);
-            if (timer.on)
-                timer.math_ms += qpc_ms(m0, qpc_now());
             draw->substituted[0] = ok;
             draw->substituted[1] = ok;
         }
         else
         {
-            const LONGLONG m0 = timer.on ? qpc_now() : 0;
             for (int e = 0; e < 2; ++e)
             {
                 perf_cpu_begin(PerfDrawMath);
@@ -466,9 +487,10 @@ namespace trlvr
                     game, draw->c0[e], e == 0 ? EyeLeft : EyeRight);
                 perf_cpu_end(PerfDrawMath);
             }
-            if (timer.on)
-                timer.math_ms += qpc_ms(m0, qpc_now());
         }
+        // Timed from here: one timestamp pair per draw instead of the
+        // start/maths/maths/end four (stats only, no draw decision).
+        BeginTimer timer;
 
         // The two passes only upload on success, so a failed eye draws with
         // whatever c0 held: the left eye with what was there before the
@@ -495,13 +517,13 @@ namespace trlvr
         // Sticky: a run of draws with the same matrices (one object's
         // pieces, everything under one upload) arms once.
         if (!g_armed || eye_w != g_armed_w || eye_h != g_armed_h ||
-            std::memcmp(g_armed_c0, draw->c0, sizeof(g_armed_c0)) != 0)
+            bank_differs(g_armed_c0, draw->c0))
         {
-            const LONGLONG a0 = timer.on ? qpc_now() : 0;
+            const unsigned long long a0 = g_stats_on ? __rdtsc() : 0;
             const HRESULT hr = g_sps->SetStereoDraw(draw->c0[0], draw->c0[1],
                                                     eye_w, eye_h);
-            if (timer.on)
-                g_times.arm_ms += qpc_ms(a0, qpc_now());
+            if (g_stats_on)
+                g_times.arm_ticks += __rdtsc() - a0;
             if (FAILED(hr))
             {
                 stereo_disarm();
@@ -582,7 +604,8 @@ namespace trlvr
     {
         stereo_disarm();
 
-        if (!config().stereo_stats)
+        g_stats_on = config().stereo_stats;
+        if (!g_stats_on)
         {
             g_stats_started = false;
             return;
@@ -596,6 +619,8 @@ namespace trlvr
             g_stats_tick = now;
             g_counts = StereoCounts{};
             g_times = StereoTimes{};
+            g_stats_qpc = qpc_now();
+            g_stats_tsc = __rdtsc();
             if (g_sps)
                 g_sps->GetStereoStats(nullptr, &g_dxvk_rejected_seen);
             return;
@@ -603,6 +628,23 @@ namespace trlvr
         if (now - g_stats_tick < 5000)
             return;
         g_stats_tick = now;
+
+        // TSC ticks per ms over this very interval (QPC is the reference).
+        LARGE_INTEGER qpc_freq{};
+        QueryPerformanceFrequency(&qpc_freq);
+        const LONGLONG qpc = qpc_now();
+        const unsigned long long tsc = __rdtsc();
+        const double interval_ms = qpc_freq.QuadPart
+            ? double(qpc - g_stats_qpc) * 1000.0 / double(qpc_freq.QuadPart)
+            : 0.0;
+        const double ticks_per_ms = interval_ms > 0.0
+            ? double(tsc - g_stats_tsc) / interval_ms : 0.0;
+        g_stats_qpc = qpc;
+        g_stats_tsc = tsc;
+        const double arm_ms = ticks_per_ms > 0.0
+            ? double(g_times.arm_ticks) / ticks_per_ms : 0.0;
+        const double begin_ms = ticks_per_ms > 0.0
+            ? double(g_times.begin_ticks) / ticks_per_ms : 0.0;
 
         // DXVK's count is a running total; the line is per 5 s like the rest.
         UINT rejected_total = g_dxvk_rejected_seen;
@@ -621,8 +663,8 @@ namespace trlvr
             "arm calls %u, dxvk rejected %u, arm %.2f ms/frame (%u calls, "
             "%u skipped), begin %.2f ms/frame", c.single, fallback,
             c.eye_textures, c.fixed_function, c.instanced, c.reflection,
-            c.mono, c.arm_calls, rejected, g_times.arm_ms / frames,
-            c.arm_calls, g_times.arm_skipped, g_times.begin_ms / frames);
+            c.mono, c.arm_calls, rejected, arm_ms / frames,
+            c.arm_calls, g_times.arm_skipped, begin_ms / frames);
         g_counts = StereoCounts{};
         g_times = StereoTimes{};
     }
