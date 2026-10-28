@@ -50,6 +50,8 @@ namespace trlvr
             { L"vr", L"stereo", L"1" },
             { L"vr", L"stereo_same_frame", L"1" },
             { L"vr", L"stereo_lock_pose", L"1" },
+            { L"vr", L"stereo_mode", L"twopass" },
+            { L"vr", L"stereo_stats", L"0" },
             { L"vr", L"head_tracking", L"1" },
             { L"vr", L"head_rotation", L"1" },
             { L"vr", L"head_position", L"1" },
@@ -259,7 +261,8 @@ namespace trlvr
             L"enabled = 1\r\n"
             L"submit = 1\r\n"
             L"; VR runtime: auto (OpenXR, or OpenVR / SteamVR if OpenXR cannot start\r\n"
-            L"; or openxr_loader.dll is missing), openxr, or openvr.\r\n"
+            L"; or openxr_loader.dll is missing), openxr, or openvr. On the Steam Frame\r\n"
+            L"; (Proton 11 ARM64, no 32-bit OpenXR) use openvr.\r\n"
             L"vr_runtime = auto\r\n"
             L"; OpenXR runtime manifest (a 32-bit one). Empty uses the registered runtime.\r\n"
             L"xr_runtime_json =\r\n"
@@ -272,6 +275,12 @@ namespace trlvr
             L"; Both eyes in one game frame. Keep Depth of Field and Fullscreen Effects off.\r\n"
             L"stereo_same_frame = 1\r\n"
             L"stereo_lock_pose = 1\r\n"
+            L"; How each scene draw reaches both eyes (with stereo_same_frame = 1):\r\n"
+            L"; twopass draws it once per eye; singlepass draws it once for both eyes\r\n"
+            L"; (needs the d3d9_dxvk.dll built with this d3d9.dll; otherwise twopass).\r\n"
+            L"stereo_mode = twopass\r\n"
+            L"; 1 logs single-pass / two-pass draw counts every 5 seconds.\r\n"
+            L"stereo_stats = 0\r\n"
             L"\r\n"
             L"head_tracking = 1\r\n"
             L"head_rotation = 1\r\n"
@@ -905,6 +914,13 @@ namespace trlvr
         g_config.stereo = read_bool(L"vr", L"stereo", true, path);
         g_config.stereo_same_frame = read_bool(L"vr", L"stereo_same_frame", true, path);
         g_config.stereo_lock_pose = read_bool(L"vr", L"stereo_lock_pose", true, path);
+        {
+            wchar_t text[16]{};
+            GetPrivateProfileStringW(L"vr", L"stereo_mode", L"twopass", text, 16,
+                                     path);
+            g_config.stereo_mode = _wcsicmp(text, L"singlepass") == 0 ? 1 : 0;
+        }
+        g_config.stereo_stats = read_bool(L"vr", L"stereo_stats", false, path);
         g_config.head_tracking = read_bool(L"vr", L"head_tracking", true, path);
         g_config.head_rotation = read_bool(L"vr", L"head_rotation", true, path);
         g_config.head_position = read_bool(L"vr", L"head_position", true, path);
