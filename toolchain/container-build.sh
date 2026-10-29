@@ -54,7 +54,9 @@ watcher() {
   done
 }
 watcher & WATCHER=$!; disown "$WATCHER"
-trap 'kill "$WATCHER" 2>/dev/null; for p in $(descendants "$MAIN"); do kill -CONT "$p" 2>/dev/null; done; true' EXIT
+# set -e is active inside this trap too: every kill must be guarded (the pids from descendants
+# include short-lived helpers that are already gone), or the trap exits 1 and masks a good build.
+trap 'kill "$WATCHER" 2>/dev/null || true; for p in $(descendants "$MAIN"); do kill -CONT "$p" 2>/dev/null || true; done' EXIT
 
 if [ "$WHAT" = all ] || [ "$WHAT" = dxvk ]; then
   t0=$(ts)
