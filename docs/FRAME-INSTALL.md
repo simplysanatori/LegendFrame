@@ -57,7 +57,8 @@ It does these steps, in this order:
    included), gains the missing ones, and the installer prints which keys it added and which it kept.
    The keys are `fsaa=off`, `msaa=2`, `comfort_vignette=off`, `cull_fov_degrees=110`,
    `stereo_mode=singlepass`, `stereo_stats=0`, `vr_runtime=openvr`, `submit_wait=0`,
-   `god_carry_fix=1`, `hud_offset_x=-0.08` and `hud_offset_y=0.08`. The mod fills in every other key itself on
+   `god_carry_fix=1`, `hud_offset_x=-0.08`, `hud_offset_y=0.08`, `hud_items_x=0.20`, `hud_items_y=0.20`,
+   `hud_ammo_x=0.20` and `hud_ammo_y=-0.20`. The mod fills in every other key itself on
    its first run.
 5. **Seeds the game registry** in `compatdata/7000/pfx/user.reg`, section
    `[Software\\Crystal Dynamics\\Tomb Raider: Legend\\Graphics]`: `EnableDepthOfField`,
@@ -200,6 +201,9 @@ matter on the Frame (section `[vr]`):
 | `submit_wait` | `0` | `0` | `0` = no CPU wait for the GPU before `Submit`. `1` is the 1.1.0 behaviour (slower). OpenXR path is unaffected. |
 | `god_carry_fix` | `1` | `1` | Fix for upstream god-mode carry smearing when Lara is drawn with a second model. `0` is the 1.1.0 carry, for A/B. |
 | `hud_offset_x`, `hud_offset_y` | `0`, `0` | `-0.08`, `0.08` | Nudges the gameplay HUD only (NDC units). Also sliders in the settings panel. |
+| `hud_items_x`, `hud_items_y` | `0`, `0` | `0.20`, `0.20` | Moves the item wheel (d-pad gear cross) inside the game's interface, same units as `hud_offset`. `hud_items_scale` (`1`) and `hud_items_hide` (`0`) resize or hide it. Also in the settings panel. |
+| `hud_ammo_x`, `hud_ammo_y` | `0`, `0` | `0.20`, `-0.20` | The same for the ammo counter, with `hud_ammo_scale` and `hud_ammo_hide`. |
+| `hud_debug` | `0` | `0` | Logs each HUD part found (fade groups, anchor) and the HUD screens to `trlvr.log`. |
 | `vr_runtime` | `auto` | `openvr` | `openxr` does not work under Proton 11 ARM64; see [above](#openvr-and-openxr). |
 | `vr_capture_c0` | `0` | `0` | Debug: records the game's `c0` and state for the maths test. Leave off. |
 | `stereo_same_frame` | `1` | `1` | Both eyes in one frame. `0` is alternate-eye: faster, but unusable. |

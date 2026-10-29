@@ -205,7 +205,8 @@ import os, sys
 path = sys.argv[1]
 WANT = [("fsaa", "off"), ("msaa", "2"), ("comfort_vignette", "off"), ("cull_fov_degrees", "110"),
         ("stereo_mode", "singlepass"), ("stereo_stats", "0"), ("vr_runtime", "openvr"),
-        ("submit_wait", "0"), ("god_carry_fix", "1"), ("hud_offset_x", "-0.08"), ("hud_offset_y", "0.08")]
+        ("submit_wait", "0"), ("god_carry_fix", "1"), ("hud_offset_x", "-0.08"), ("hud_offset_y", "0.08"),
+        ("hud_items_x", "0.20"), ("hud_items_y", "0.20"), ("hud_ammo_x", "0.20"), ("hud_ammo_y", "-0.20")]
 raw = open(path, "r", encoding="utf-8", errors="surrogateescape", newline="").read()
 eol = "\r" if "\r\n" in raw else ""
 lines = raw.split("\n")          # lines keep their own \r, so untouched lines stay byte-identical
