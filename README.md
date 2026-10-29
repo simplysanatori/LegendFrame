@@ -29,7 +29,7 @@ The original mod draws the whole scene twice, once per eye. On the Frame every d
 - **God mode fixed.** In the original mod, picking up a character after a cutscene, or once Lara was wet or dirty, left parts of her stretched back to the pick-up spot. Carries now stay clean.
 - **Steam Frame controllers.** A native binding. Tap the left menu button for the gear menu and pause. Hold it for the settings panel.
 - **HUD position.** Sliders move the HUD, and it starts nudged up and to the left.
-- **HUD layout.** Move or hide single HUD elements (item wheel, ammo) in VR. <!-- HUD-ELEMENTS placeholder: finalise before release -->
+- **HUD layout.** The item wheel and the ammo counter can each be moved, resized or hidden on their own, from the settings panel. On the Frame they start a little to the right, the item wheel raised and the ammo counter lowered.
 - **Frame install.** One script installs into your Steam copy of the game. It backs up your files, adds a "Tomb Raider: Legend VR" library entry on Proton 11 ARM64 and sets SteamVR to 72 Hz at 1440 per eye. It also turns off the effects that cost the most. An uninstall script puts everything back.
 - **Built on Linux.** The mod builds on the Frame itself. You don't need Windows or Visual Studio.
 
@@ -104,6 +104,9 @@ Edit `trlvr.ini` in the game folder with the game closed. The mod writes every k
 | `god_carry_fix` | `1` | Keeps carried characters whole in god mode. `0` is the original carry |
 | `vr_runtime` | `openvr` | The installer sets `openvr`. `openxr` leaves the game flat under Proton 11 ARM64 |
 | `hud_offset_x`, `hud_offset_y` | `-0.08`, `0.08` | Moves the gameplay HUD. Also sliders in the settings panel |
+| `hud_items_x`, `hud_items_y` | `0.20`, `0.20` | Moves the item wheel (the d-pad gear cross), in the same units as `hud_offset`. `hud_items_scale` (`1.0`) resizes it, `hud_items_hide` (`0`) hides it. All in the settings panel |
+| `hud_ammo_x`, `hud_ammo_y` | `0.20`, `-0.20` | Moves the ammo counter the same way. `hud_ammo_scale` and `hud_ammo_hide` work like the item wheel's |
+| `hud_debug` | `0` | `1` logs which HUD parts were found and where, if a slider moves the wrong thing |
 | `stereo_stats` | `0` | `1` logs a `stereo stats:` line every 5 seconds |
 | `fsaa` | `off` | The game's anti-aliasing is expensive |
 | `comfort_vignette` | `off` | `jumps` or `full` darken the edge of view while moving |
