@@ -7,6 +7,7 @@
 #include "../vr/cull.h"
 #include "../vr/stereo.h"
 #include "../vr/camera_head.h"
+#include "../vr/hud_elements.h"
 #include "../vr/ui_space.h"
 #include "../vr/water_stereo.h"
 #include "../vr/input_labels.h"
@@ -120,6 +121,7 @@ namespace trlvr
             {
                 cull_init();
                 camera_head_init();
+                hud_elements_init();
                 ui_space_init();
                 water_stereo_init();
                 input_labels_init();

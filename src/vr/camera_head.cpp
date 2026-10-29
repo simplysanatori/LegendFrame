@@ -10647,7 +10647,10 @@ namespace trlvr
         // whole UIItemGroup that holds the light meter when it is a small
         // group (the light's own block). UIItemGroup_Draw (0x004EC260,
         // cdecl item, drawInfo): child count at +0x20, child pointers from
-        // +0x24, each child's draw at [[child+4]+0x10].
+        // +0x24. A child is the light meter when its itemType (+2) is 9
+        // (kItemMeterType) and it shows game value 0x44; the type is read
+        // rather than the draw in its fnTable, which hud_elements.cpp
+        // replaces with its own wrapper.
         const uintptr_t kUIItemMeterDraw = 0x004EE4B0;
         using PFN_GroupDraw = void(__cdecl*)(void*, void*);
         PFN_GroupDraw g_group_draw = nullptr;
@@ -10673,9 +10676,8 @@ namespace trlvr
                         static_cast<const unsigned char*>(children[i]);
                     if (!child)
                         continue;
-                    const uintptr_t* vtable =
-                        *reinterpret_cast<const uintptr_t* const*>(child + 4);
-                    if (vtable && vtable[0x10 / 4] == kUIItemMeterDraw &&
+                    if (*reinterpret_cast<const unsigned short*>(child + 2)
+                            == 9 &&
                         *reinterpret_cast<const short*>(child + 0x0C) == 0x44)
                         return count <= 4 ? 1 : 2;
                 }
