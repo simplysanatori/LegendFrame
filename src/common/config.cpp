@@ -191,6 +191,15 @@ namespace trlvr
             { L"vr", L"hud_follow", L"0.85" },
             { L"vr", L"hud_offset_x", L"0.0" },
             { L"vr", L"hud_offset_y", L"0.0" },
+            { L"vr", L"hud_items_x", L"0.0" },
+            { L"vr", L"hud_items_y", L"0.0" },
+            { L"vr", L"hud_items_scale", L"1.0" },
+            { L"vr", L"hud_items_hide", L"0" },
+            { L"vr", L"hud_ammo_x", L"0.0" },
+            { L"vr", L"hud_ammo_y", L"0.0" },
+            { L"vr", L"hud_ammo_scale", L"1.0" },
+            { L"vr", L"hud_ammo_hide", L"0" },
+            { L"vr", L"hud_debug", L"0" },
             { L"vr", L"overlay_vr_distance", L"1.0" },
             { L"vr", L"overlay_vr_width_degrees", L"38" },
             { L"vr", L"overlay_vr_yaw_degrees", L"15" },
@@ -596,6 +605,19 @@ namespace trlvr
             L"; 0.1 moves it a twentieth of the view; menus and markers stay put.\r\n"
             L"hud_offset_x = 0.0\r\n"
             L"hud_offset_y = 0.0\r\n"
+            L"; Move single HUD elements, in the same units as hud_offset (-1 to 1):\r\n"
+            L"; hud_items_* is the item wheel (the d-pad gear cross), hud_ammo_* the\r\n"
+            L"; ammo counter. _scale (0.5 to 2) resizes it, _hide = 1 turns it off.\r\n"
+            L"; hud_debug = 1 logs which HUD parts were found and where they are.\r\n"
+            L"hud_items_x = 0.0\r\n"
+            L"hud_items_y = 0.0\r\n"
+            L"hud_items_scale = 1.0\r\n"
+            L"hud_items_hide = 0\r\n"
+            L"hud_ammo_x = 0.0\r\n"
+            L"hud_ammo_y = 0.0\r\n"
+            L"hud_ammo_scale = 1.0\r\n"
+            L"hud_ammo_hide = 0\r\n"
+            L"hud_debug = 0\r\n"
             L"\r\n"
             L"; The settings window (Insert) in the headset: a panel placed in front\r\n"
             L"; of you when it opens. Distance in metres (0.3 to 5), width in degrees\r\n"
@@ -1296,6 +1318,27 @@ namespace trlvr
         value = read_float(L"vr", L"hud_offset_y", L"0.0", path);
         g_config.hud_offset_y =
             value >= -0.5f && value <= 0.5f ? value : 0.0f;
+        {
+            const auto offset = [&](const wchar_t* key) {
+                const float v = read_float(L"vr", key, L"0.0", path);
+                return std::isfinite(v) && v >= -1.0f && v <= 1.0f ? v : 0.0f;
+            };
+            const auto scale = [&](const wchar_t* key) {
+                const float v = read_float(L"vr", key, L"1.0", path);
+                return std::isfinite(v) && v >= 0.5f && v <= 2.0f ? v : 1.0f;
+            };
+            g_config.hud_items_x = offset(L"hud_items_x");
+            g_config.hud_items_y = offset(L"hud_items_y");
+            g_config.hud_items_scale = scale(L"hud_items_scale");
+            g_config.hud_items_hide =
+                read_bool(L"vr", L"hud_items_hide", false, path);
+            g_config.hud_ammo_x = offset(L"hud_ammo_x");
+            g_config.hud_ammo_y = offset(L"hud_ammo_y");
+            g_config.hud_ammo_scale = scale(L"hud_ammo_scale");
+            g_config.hud_ammo_hide =
+                read_bool(L"vr", L"hud_ammo_hide", false, path);
+            g_config.hud_debug = read_bool(L"vr", L"hud_debug", false, path);
+        }
         {
             const auto clamped = [](float v, float low, float high,
                                     float fallback) {

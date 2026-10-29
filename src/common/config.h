@@ -365,6 +365,21 @@ namespace trlvr
         // +y up, in NDC after ui_scale (0.5 = a quarter of the view).
         float hud_offset_x = 0.0f;
         float hud_offset_y = 0.0f;
+        // Single HUD elements, moved inside the game's own interface before
+        // the HUD reaches the headset (hud_elements.cpp): the item wheel
+        // (the d-pad gear cross) and the ammo counter. Same units and signs
+        // as hud_offset_x / _y (+x right, +y up, 0.5 = a quarter of the
+        // view), applied under them. scale grows the element around its own
+        // centre; hide skips it. hud_debug logs what was found.
+        float hud_items_x = 0.0f;
+        float hud_items_y = 0.0f;
+        float hud_items_scale = 1.0f;
+        bool hud_items_hide = false;
+        float hud_ammo_x = 0.0f;
+        float hud_ammo_y = 0.0f;
+        float hud_ammo_scale = 1.0f;
+        bool hud_ammo_hide = false;
+        bool hud_debug = false;
 
         // The settings overlay in the headset: a square panel placed in the
         // room in front of the head when it opens (and at a recentre or a
