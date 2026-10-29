@@ -194,7 +194,7 @@ namespace trlvr
 
         SYSTEMTIME st{};
         GetLocalTime(&st);
-        fprintf(g_file, "TRL VR " TRLVR_VERSION " proxy log  %04d-%02d-%02d %02d:%02d:%02d\n",
+        fprintf(g_file, "TRL VR " TRLVR_VERSION " / LegendFrame " LEGENDFRAME_VERSION " proxy log  %04d-%02d-%02d %02d:%02d:%02d\n",
                 st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
         fflush(g_file);
     }

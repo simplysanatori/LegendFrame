@@ -38,7 +38,7 @@ namespace trlvr
             { L"vr", L"vr_runtime", L"auto" },
             { L"vr", L"xr_runtime_json", L"" },
             { L"vr", L"xr_copy_wait", L"1" },
-            { L"vr", L"submit_wait", L"1" },
+            { L"vr", L"submit_wait", L"0" },
             { L"vr", L"xr_grip_match_openvr", L"1" },
             { L"vr", L"view_transition_seconds", L"0.3" },
             { L"vr", L"picture_brightness", L"0" },
@@ -51,7 +51,7 @@ namespace trlvr
             { L"vr", L"stereo", L"1" },
             { L"vr", L"stereo_same_frame", L"1" },
             { L"vr", L"stereo_lock_pose", L"1" },
-            { L"vr", L"stereo_mode", L"twopass" },
+            { L"vr", L"stereo_mode", L"singlepass" },
             { L"vr", L"stereo_stats", L"0" },
             { L"vr", L"stereo_shared_math", L"1" },
             { L"vr", L"vr_capture_c0", L"0" },
@@ -272,9 +272,9 @@ namespace trlvr
             L"xr_runtime_json =\r\n"
             L"; 1 waits for the GPU copy into the headset's image before handing it over.\r\n"
             L"xr_copy_wait = 1\r\n"
-            L"; OpenVR: 1 waits for the GPU to finish each frame before handing it to\r\n"
-            L"; SteamVR; 0 lets the GPU finish it in queue order (experiment, faster).\r\n"
-            L"submit_wait = 1\r\n"
+            L"; OpenVR: 0 hands each frame to SteamVR without the CPU waiting for the\r\n"
+            L"; GPU (it finishes in queue order; faster). 1 waits, as TRL VR 1.1.0 did.\r\n"
+            L"submit_wait = 0\r\n"
             L"; 1 = under OpenXR the hands sit where they do under OpenVR (the\r\n"
             L"; controllers' grip point converted; known for Reverb G2 and Touch).\r\n"
             L"xr_grip_match_openvr = 1\r\n"
@@ -285,7 +285,7 @@ namespace trlvr
             L"; How each scene draw reaches both eyes (with stereo_same_frame = 1):\r\n"
             L"; twopass draws it once per eye; singlepass draws it once for both eyes\r\n"
             L"; (needs the d3d9_dxvk.dll built with this d3d9.dll; otherwise twopass).\r\n"
-            L"stereo_mode = twopass\r\n"
+            L"stereo_mode = singlepass\r\n"
             L"; 1 logs single-pass / two-pass draw counts every 5 seconds.\r\n"
             L"stereo_stats = 0\r\n"
             L"; 1 makes both eyes' matrices in one go (same result, less CPU);\r\n"
@@ -926,7 +926,7 @@ namespace trlvr
         GetPrivateProfileStringW(L"vr", L"xr_runtime_json", L"",
                                  g_config.xr_runtime_json, MAX_PATH, path);
         g_config.xr_copy_wait = read_bool(L"vr", L"xr_copy_wait", true, path);
-        g_config.submit_wait = read_bool(L"vr", L"submit_wait", true, path);
+        g_config.submit_wait = read_bool(L"vr", L"submit_wait", false, path);
         g_config.xr_grip_match_openvr =
             read_bool(L"vr", L"xr_grip_match_openvr", true, path);
         g_config.stereo = read_bool(L"vr", L"stereo", true, path);
@@ -934,7 +934,7 @@ namespace trlvr
         g_config.stereo_lock_pose = read_bool(L"vr", L"stereo_lock_pose", true, path);
         {
             wchar_t text[16]{};
-            GetPrivateProfileStringW(L"vr", L"stereo_mode", L"twopass", text, 16,
+            GetPrivateProfileStringW(L"vr", L"stereo_mode", L"singlepass", text, 16,
                                      path);
             g_config.stereo_mode = _wcsicmp(text, L"singlepass") == 0 ? 1 : 0;
         }
