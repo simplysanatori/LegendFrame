@@ -2674,6 +2674,116 @@ namespace trlvr
                 want['Z'] = true;
         }
 
+        // Precision aim (the game's accurate aim, camera mode 13, toggled
+        // by Z): its edges in the log with the view and the controls, and
+        // a third-person X press the game did not act on. The game ignores
+        // Z without a sign while Lara is mid-jump, hanging or climbing, and
+        // in the binocular view (2026-10-30 session: X once during a jump
+        // into a ledge pull-up, three times in the binocular view; nothing
+        // happened and nothing said why). On the Frame, X in third-person
+        // binocular view puts the binoculars away and then sends the
+        // toggle once the view has closed and X is let go. Called once a
+        // frame just before frame_dpad_update, which sends g_frame_z_until.
+        void precision_aim_update(bool* want, bool menu, bool first_person)
+        {
+            static int on_was = -1;
+            static bool x_was = false;
+            static ULONGLONG check_at = 0;
+            static bool expect_on = false;
+            static ULONGLONG after_binoculars = 0;
+            static ULONGLONG view_closed_at = 0;
+            static ULONGLONG notice_at = 0;
+            const ULONGLONG now = GetTickCount64();
+            const bool on = camera_accurate_aim_active();
+            const int tp = camera_third_person_mode();
+            const char* where = first_person ? "first person"
+                : tp == 1 ? "third person, shoulder view"
+                : tp == 2 ? "third person, board view"
+                          : "third person, classic view";
+            const char* controls = config().immersive_controls
+                ? "immersive controls" : "VR-gamepad controls";
+            if (on_was >= 0 && on != (on_was != 0))
+                log("aim: precision aim %s (%s, %s)", on ? "on" : "off",
+                    where, controls);
+            on_was = on ? 1 : 0;
+
+            const bool x = digital(g_game[GameAim].handle);
+            const bool pressed = x && !x_was && !menu && !first_person;
+            x_was = x;
+            if (pressed && binocular_view_now())
+            {
+                check_at = 0;
+                if (xr_input_frame())
+                {
+                    if (g_binocular_view || g_binocular_hand >= 0)
+                        binoculars_put_back("X for precision aim");
+                    g_binocular_cancel_until = now + kPulseMs;
+                    after_binoculars = now;
+                    view_closed_at = 0;
+                    log("controls: [Frame] X in the binocular view: "
+                        "binoculars away, then precision aim");
+                }
+                else
+                    log("aim: X in the binocular view (%s): the game has no "
+                        "precision aim there", where);
+            }
+            else if (pressed && !after_binoculars)
+            {
+                check_at = now + 600;
+                expect_on = !on;
+            }
+
+            if (after_binoculars)
+            {
+                // X's own Z stays out until the toggle is sent: the game
+                // must see a fresh press once the view has closed.
+                want['Z'] = false;
+                if (first_person || menu || now - after_binoculars > 3000)
+                {
+                    after_binoculars = 0;
+                    log("aim: precision aim after the binoculars given up "
+                        "(%s)", first_person ? "first person"
+                        : menu ? "a menu opened" : "the view stayed open");
+                }
+                else if (!binocular_view_now())
+                {
+                    if (!view_closed_at)
+                        view_closed_at = now;
+                    if (now - view_closed_at >= 250 && !x)
+                    {
+                        after_binoculars = 0;
+                        g_frame_z_until = now + kPulseMs;
+                        check_at = now + 600;
+                        expect_on = !on;
+                    }
+                }
+                else
+                    view_closed_at = 0;
+            }
+
+            if (check_at && (menu || first_person))
+                check_at = 0;
+            if (check_at && now >= check_at)
+            {
+                check_at = 0;
+                if (on != expect_on)
+                {
+                    log("aim: X pressed (%s, %s) but the game did not turn "
+                        "precision aim %s: Lara must be on her feet, not "
+                        "mid-jump, hanging or climbing", where, controls,
+                        expect_on ? "on" : "off");
+                    if (xr_input_frame() && now - notice_at > 20000)
+                    {
+                        notice_at = now;
+                        vr_submit_notice(trw(L"Precision Aim"),
+                            trw(L"Lara can only aim precisely on her feet. "
+                                L"Press X again once she has landed, not "
+                                L"while she jumps, hangs or climbs."));
+                    }
+                }
+            }
+        }
+
         // The physical inputs of this frame as the game's actions. This is
         // the table the SteamVR bindings_*.json files used to hold.
         void update_logical_actions()
@@ -4004,7 +4114,8 @@ namespace trlvr
         {
             g_tp_reported = true;
             log("controls: third-person immersive -- VR-gamepad buttons "
-                "plus chest-grip light; press log on (first 400 presses)");
+                "plus chest-grip light; press log on (first 400 presses, "
+                "X aim always)");
         }
         if (immersive_third_person && !menu)
         {
@@ -4019,8 +4130,9 @@ namespace trlvr
             for (int i = 0; i < kGameButtons && i < 32; ++i)
             {
                 const bool on = digital(g_game[i].handle);
+                // X (precision aim) is always logged, past the cap too.
                 if (on && !g_tp_button_was[i] &&
-                    g_tp_button_reports < 400)
+                    (g_tp_button_reports < 400 || i == GameAim))
                 {
                     ++g_tp_button_reports;
                     float r = 0.0f, u = 0.0f, fw = 0.0f;
@@ -5609,6 +5721,7 @@ namespace trlvr
             }
         }
 
+        precision_aim_update(want, menu, camera_first_person_active());
         frame_dpad_update(want, menu, immersive_first_person);
         apply(want, want_mouse_left);
     }
