@@ -58,8 +58,9 @@ It does these steps, in this order:
    The keys are `fsaa=off`, `msaa=2`, `comfort_vignette=off`, `cull_fov_degrees=110`,
    `stereo_mode=singlepass`, `stereo_stats=0`, `vr_runtime=openvr`, `submit_wait=0`,
    `god_carry_fix=1`, `hud_offset_x=-0.08`, `hud_offset_y=0.08`, `hud_items_x=0.20`, `hud_items_y=0.20`,
-   `hud_ammo_x=0.20` and `hud_ammo_y=-0.20`. The mod fills in every other key itself on
-   its first run.
+   `hud_ammo_x=0.20`, `hud_ammo_y=-0.20`, `overlay_vr_width_degrees=50`, `overlay_vr_resolution=1536`
+   and `overlay_vr_text_scale=1.25`. One existing value is moved on: `overlay_vr_width_degrees=38`, the
+   old default, becomes `50`. The mod fills in every other key itself on its first run.
 5. **Seeds the game registry** in `compatdata/7000/pfx/user.reg`, section
    `[Software\\Crystal Dynamics\\Tomb Raider: Legend\\Graphics]`: `EnableDepthOfField`,
    `EnableFullscreenEffects`, `EnableVSync`, `EnableShadows`, `EnableReflection`, `EnableWaterFX` and
@@ -204,6 +205,9 @@ matter on the Frame (section `[vr]`):
 | `hud_items_x`, `hud_items_y` | `0`, `0` | `0.20`, `0.20` | Moves the item wheel (d-pad gear cross) inside the game's interface, same units as `hud_offset`. `hud_items_scale` (`1`) and `hud_items_hide` (`0`) resize or hide it. Also in the settings panel. |
 | `hud_ammo_x`, `hud_ammo_y` | `0`, `0` | `0.20`, `-0.20` | The same for the ammo counter, with `hud_ammo_scale` and `hud_ammo_hide`. |
 | `hud_debug` | `0` | `0` | Logs each HUD part found (fade groups, anchor) and the HUD screens to `trlvr.log`. |
+| `overlay_vr_width_degrees` | `50` | `50` | Settings panel width in the headset. 1.1.0 used 38 (too small to read); the installer moves an unchanged 38 to 50. Also a panel slider. |
+| `overlay_vr_text_scale` | `1.25` | `1.25` | Panel text and control size; 1 = the 1.1.0 layout (768 px of content). Larger fits less at once. Panel slider; applies when the panel next opens. |
+| `overlay_vr_resolution` | `1536` | `1536` | Panel texture size, square, 512 to 4096, with mipmaps. About 12 MB of video memory at 1536, made the first time the panel opens. |
 | `vr_runtime` | `auto` | `openvr` | `openxr` does not work under Proton 11 ARM64; see [above](#openvr-and-openxr). |
 | `vr_capture_c0` | `0` | `0` | Debug: records the game's `c0` and state for the maths test. Leave off. |
 | `stereo_same_frame` | `1` | `1` | Both eyes in one frame. `0` is alternate-eye: faster, but unusable. |
@@ -215,7 +219,8 @@ matter on the Frame (section `[vr]`):
 | `ui_scale`, `hud_follow` | | `0.6`, `0.85` | HUD size and how it follows your head. |
 
 The "Frame setting" column is what `frame/install.sh` seeds. The installer adds any of the Frame keys
-that are missing (see step 4 above) and never changes one that exists. Outside the ini: the per-app
+that are missing (see step 4 above) and changes none that exist, except an unchanged
+`overlay_vr_width_degrees=38`. Outside the ini: the per-app
 SteamVR resolution and refresh rate, and the game's Setup dialog for Shadows, Reflections and Water (the
 installer turns them off in the registry when those values are absent).
 

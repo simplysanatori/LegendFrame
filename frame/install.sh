@@ -206,7 +206,10 @@ path = sys.argv[1]
 WANT = [("fsaa", "off"), ("msaa", "2"), ("comfort_vignette", "off"), ("cull_fov_degrees", "110"),
         ("stereo_mode", "singlepass"), ("stereo_stats", "0"), ("vr_runtime", "openvr"),
         ("submit_wait", "0"), ("god_carry_fix", "1"), ("hud_offset_x", "-0.08"), ("hud_offset_y", "0.08"),
-        ("hud_items_x", "0.20"), ("hud_items_y", "0.20"), ("hud_ammo_x", "0.20"), ("hud_ammo_y", "-0.20")]
+        ("hud_items_x", "0.20"), ("hud_items_y", "0.20"), ("hud_ammo_x", "0.20"), ("hud_ammo_y", "-0.20"),
+        ("overlay_vr_width_degrees", "50"), ("overlay_vr_resolution", "1536"), ("overlay_vr_text_scale", "1.25")]
+# Old defaults that were never a choice: moved on to the Frame value when found unchanged.
+UPGRADE = {"overlay_vr_width_degrees": ("38", "50")}
 raw = open(path, "r", encoding="utf-8", errors="surrogateescape", newline="").read()
 eol = "\r" if "\r\n" in raw else ""
 lines = raw.split("\n")          # lines keep their own \r, so untouched lines stay byte-identical
@@ -219,11 +222,16 @@ if start is None:
     lines += ["[vr]" + eol, ""]; start = len(lines) - 2
 end = start + 1
 while end < len(lines) and sec(lines[end]) is None: end += 1
-have = {}
-for l in lines[start + 1:end]:
-    t = l.strip()
+have, upgraded = {}, []
+for i in range(start + 1, end):
+    t = lines[i].strip()
     if t and t[0] not in ";#" and "=" in t:
-        have[t.split("=", 1)[0].strip().lower()] = t.split("=", 1)[1].strip()
+        k, v = t.split("=", 1)[0].strip().lower(), t.split("=", 1)[1].strip()
+        if k in UPGRADE and v == UPGRADE[k][0]:
+            v = UPGRADE[k][1]
+            lines[i] = "%s=%s%s" % (k, v, "\r" if lines[i].endswith("\r") else "")
+            upgraded.append("%s=%s" % (k, v))
+        have[k] = v
 ins = end
 while ins > start + 1 and lines[ins - 1].strip() == "": ins -= 1
 if ins == len(lines) and lines[-1] != "": lines.append("")   # no newline at end of file
@@ -232,12 +240,13 @@ for k, v in WANT:
     if k in have: kept.append("%s=%s" % (k, have[k]))
     else:
         lines.insert(ins, "%s=%s%s" % (k, v, eol)); ins += 1; added.append("%s=%s" % (k, v))
-if added:
+if added or upgraded:
     out = "\n".join(lines)
     tmp = path + ".legendframe-tmp"
     open(tmp, "w", encoding="utf-8", errors="surrogateescape", newline="").write(out)
     os.replace(tmp, path)
 print("trlvr.ini: added " + (", ".join(added) if added else "nothing (all Frame keys already present)"))
+if upgraded: print("trlvr.ini: moved from the old default to " + ", ".join(upgraded))
 if kept: print("trlvr.ini: kept existing " + ", ".join(kept))
 PY
 

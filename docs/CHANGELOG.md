@@ -23,6 +23,7 @@ Tomb Raider: Legend is a 32-bit Windows game. On the Frame it runs through Proto
 - **Steam Frame controllers.** A native binding. Tap the left menu button for the gear menu and pause. Hold it for the settings panel.
 - **HUD position.** Sliders move the HUD, and it starts nudged up and to the left.
 - **HUD layout.** The item wheel and the ammo counter can each be moved, resized or hidden on their own, from the settings panel. On the Frame they start a little to the right, the item wheel raised and the ammo counter lowered.
+- **Readable settings panel.** In the original mod the settings panel was too small and soft to read on the Frame. Now it's drawn at 1536 pixels with mipmaps and a font made for that size, so the text stays crisp instead of breaking up. The text and controls are about 1.7 times bigger in view, and the panel spans 50 degrees instead of 38. A text-size slider in the panel makes it bigger or smaller.
 - **Frame install.** One script installs into your Steam copy of the game. It backs up your files, adds a "Tomb Raider: Legend VR" library entry on Proton 11 ARM64 and sets SteamVR to 72 Hz at 1440 per eye. It also turns off the effects that cost the most. An uninstall script puts everything back.
 - **Built on Linux.** The mod builds on the Frame itself. You don't need Windows or Visual Studio.
 

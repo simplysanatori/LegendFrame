@@ -107,6 +107,9 @@ Edit `trlvr.ini` in the game folder with the game closed. The mod writes every k
 | `hud_items_x`, `hud_items_y` | `0.20`, `0.20` | Moves the item wheel (the d-pad gear cross), in the same units as `hud_offset`. `hud_items_scale` (`1.0`) resizes it, `hud_items_hide` (`0`) hides it. All in the settings panel |
 | `hud_ammo_x`, `hud_ammo_y` | `0.20`, `-0.20` | Moves the ammo counter the same way. `hud_ammo_scale` and `hud_ammo_hide` work like the item wheel's |
 | `hud_debug` | `0` | `1` logs which HUD parts were found and where, if a slider moves the wrong thing |
+| `overlay_vr_width_degrees` | `50` | How wide the settings panel looks in the headset. The original mod used 38, which an install moves to 50. Also a slider in the panel |
+| `overlay_vr_text_scale` | `1.25` | Text and control size in the settings panel. Larger fits less at once. Also a slider in the panel; it applies the next time the panel opens |
+| `overlay_vr_resolution` | `1536` | The settings panel's texture size in pixels. Higher is sharper when you lean in |
 | `stereo_stats` | `0` | `1` logs a `stereo stats:` line every 5 seconds |
 | `fsaa` | `off` | The game's anti-aliasing is expensive |
 | `comfort_vignette` | `off` | `jumps` or `full` darken the edge of view while moving |

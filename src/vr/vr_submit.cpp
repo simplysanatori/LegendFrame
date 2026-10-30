@@ -3057,12 +3057,24 @@ namespace trlvr
                 g_device->SetRenderState(D3DRS_SCISSORTESTENABLE, TRUE);
                 g_device->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
                 g_device->SetRenderState(D3DRS_COLORWRITEENABLE, 0x7);
+                // The panel is drawn well under its own size (1536 pixels
+                // into a few hundred of the eye): trilinear from its mips,
+                // anisotropic for a panel seen at an angle, biased half a
+                // level sharp so the text is not softened.
                 g_device->SetSamplerState(0, D3DSAMP_MINFILTER,
-                                          D3DTEXF_LINEAR);
+                                          D3DTEXF_ANISOTROPIC);
+                g_device->SetSamplerState(0, D3DSAMP_MAXANISOTROPY, 4);
                 g_device->SetSamplerState(0, D3DSAMP_MAGFILTER,
                                           D3DTEXF_LINEAR);
                 g_device->SetSamplerState(0, D3DSAMP_MIPFILTER,
-                                          D3DTEXF_NONE);
+                                          D3DTEXF_LINEAR);
+                {
+                    const float bias = -0.5f;
+                    DWORD bits = 0;
+                    memcpy(&bits, &bias, sizeof(bits));
+                    g_device->SetSamplerState(0, D3DSAMP_MIPMAPLODBIAS, bits);
+                }
+                g_device->SetSamplerState(0, D3DSAMP_MAXMIPLEVEL, 0);
                 g_device->SetSamplerState(0, D3DSAMP_ADDRESSU,
                                           D3DTADDRESS_CLAMP);
                 g_device->SetSamplerState(0, D3DSAMP_ADDRESSV,

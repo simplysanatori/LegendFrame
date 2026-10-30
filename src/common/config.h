@@ -388,10 +388,15 @@ namespace trlvr
         // button open_hold seconds opens it (0 = off: the button always goes
         // to the game).
         float overlay_vr_distance = 1.0f;
-        float overlay_vr_width_degrees = 38.0f;
+        float overlay_vr_width_degrees = 50.0f;
         float overlay_vr_yaw_degrees = 15.0f;
         float overlay_vr_pitch_degrees = -10.0f;
         float overlay_vr_open_hold = 0.6f;
+        // The panel's texture size in pixels (square, 512 to 4096), and how
+        // big its text and controls are (1 = the 1.1.0 layout, which fitted
+        // 768 pixels; 0.5 to 2.5). Both take effect when the panel next opens.
+        unsigned overlay_vr_resolution = 1536;
+        float overlay_vr_text_scale = 1.25f;
 
         // The safe production policy keeps portal/room culling bypassed and
         // widens only the engine's much cheaper object frustum.
