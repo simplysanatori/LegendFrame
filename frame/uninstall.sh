@@ -131,6 +131,11 @@ Left in place on purpose:
   - SteamVR per-app settings for app $APPID (72 Hz, resolution 1440). To revert, use SteamVR
     Settings > Video > per-application, or with SteamVR closed delete the "steam.app.$APPID" section
     from ~/.config/openvr/config/steamvr.vrsettings.
+  - SteamVR's dashboard setting "Auto show game theater", which the installer turns off so the game
+    window starts docked. To turn it back on (flat apps then open on the theater screen again), with
+    SteamVR running:
+      /opt/steamvr/bin/linuxarm64/vrcmd --set-settings-bool dashboard.autoShowGameTheater true
+    or SteamVR Settings > Dashboard (Advanced).
   - The compatibility tool mapping for app $APPID (Proton 11 ARM64): Steam > Tomb Raider: Legend >
     Properties > Compatibility.
 TXT

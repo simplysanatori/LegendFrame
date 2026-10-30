@@ -14,7 +14,7 @@ LegendFrame 1.0.0 is TRLVR 1.1.0 plus the Frame work in this repository. On the 
 
 Known issues:
 
-- The game window opens as a floating 2D screen over the VR view. Press "Connect to dock" on it once and it gets out of the way.
+- The game window starts docked in the SteamVR dashboard and hides with it. SteamVR's "Auto show game theater" setting sends every new game window to the theater screen, so the Frame install turns that setting off. If I still see a floating window, I press "Connect to dock" on it once, or turn off "Auto show game theater" under SteamVR Settings > Dashboard (Advanced). The setting also stops flat apps opening on the theater screen by themselves.
 - The game runs through OpenVR, not OpenXR. OpenXR isn't available to 32-bit games under Proton 11 ARM64.
 - Turn Next Generation Content off in the game's Setup dialog, or the VR view is black.
 - Very busy areas can still dip below 72. The game's own logic runs through the emulator.
@@ -136,6 +136,7 @@ Edit `trlvr.ini` in the game folder with the game closed. The mod writes every k
 | `hud_items_x`, `hud_items_y` | `0.20`, `0.20` | Moves the whole item wheel (the d-pad gear cross, every slot), in the same units as `hud_offset`. Sliders in the settings panel, where the HUD stays in view while you move them. `hud_items_hide` (`0`) hides it |
 | `hud_ammo_x`, `hud_ammo_y` | `0.20`, `-0.20` | Moves the weapon and ammo readout, icon and numbers together, the same way. `hud_ammo_hide` (`0`) hides it |
 | `hud_health_x`, `hud_health_y` | `0.20`, `-0.20` | Moves the health bar, with the breath bar above it, the same way. `hud_health_hide` (`0`) hides it. Reset to defaults in the settings panel puts these three and `hud_offset` back to the values in this table |
+| `frame_quick_draw` | `1` | In the `[controls]` section. With the guns holstered in immersive first person, the fire trigger or X draws the pistols straight away. `0` turns that off |
 | `hud_debug` | `0` | `1` logs the HUD's parts and which element each belongs to, if a slider moves the wrong thing |
 | `overlay_vr_width_degrees` | `50` | How wide the settings panel looks in the headset. The original mod used 38, which an install moves to 50. Also a slider in the panel |
 | `overlay_vr_text_scale` | `1.25` | Text and control size in the settings panel. Larger fits less at once. Also a slider in the panel; it applies the next time the panel opens |
@@ -177,7 +178,7 @@ The game's own files are never modified, so Steam's "Verify integrity" never nee
 ## Troubleshooting
 
 - **The game starts flat, not in VR.** Launch the **Tomb Raider: Legend VR** shortcut, not the store entry. Check that `trlvr.ini` has `vr_runtime=openvr`.
-- **A floating 2D window covers the VR view.** That is the game window. Press "Connect to dock" on it.
+- **A floating 2D window covers the VR view.** That is the game window. The Frame install turns off SteamVR's "Auto show game theater", which is what sends a new game window to the theater screen. If the window still floats, press "Connect to dock" on it once, or turn off "Auto show game theater" under SteamVR Settings > Dashboard (Advanced). With the SteamVR server running, `/opt/steamvr/bin/linuxarm64/vrcmd --set-settings-bool dashboard.autoShowGameTheater false` does the same. The setting also stops flat apps opening on the theater screen by themselves; the same command with `true` brings that back.
 - **The scene is black in VR.** Turn **Next Generation Content off** in the game's Setup dialog.
 - **A controller button does nothing, or still does what it did in an older version.** Select the supplied binding again in SteamVR > Settings > Controllers > Manage Controller Bindings for Tomb Raider: Legend. The left system button always opens the SteamVR dashboard.
 - **The installer says the registry section does not exist.** Run the game once from the store entry, then run the installer again.

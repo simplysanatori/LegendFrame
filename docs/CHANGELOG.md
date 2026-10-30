@@ -31,7 +31,7 @@ The original two-eye renderer is still there as a setting (`stereo_mode=twopass`
 
 ### Known issues
 
-- The game window opens as a floating 2D screen over the VR view. Press "Connect to dock" on it once and it gets out of the way.
+- The game window starts docked in the SteamVR dashboard and hides with it. SteamVR's "Auto show game theater" setting sends every new game window to the theater screen, so the Frame install turns that setting off. If I still see a floating window, I press "Connect to dock" on it once, or turn off "Auto show game theater" under SteamVR Settings > Dashboard (Advanced). The setting also stops flat apps opening on the theater screen by themselves.
 - The game runs through OpenVR, not OpenXR. OpenXR isn't available to 32-bit games under Proton 11 ARM64.
 - Turn Next Generation Content off in the game's Setup dialog, or the VR view is black.
 - Very busy areas can still dip below 72. The game's own logic runs through the emulator.

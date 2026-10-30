@@ -23,7 +23,8 @@
 #                       into steamvr.vrsettings instead of only printing how
 #   --force-registry    overwrite the game registry values even if they already exist
 #                       (default: only values that are absent are seeded)
-#   --no-registry | --no-vrsettings | --no-shortcut     skip that step
+#   --no-registry | --no-vrsettings | --no-shortcut     skip that step (--no-vrsettings also leaves
+#                       SteamVR's dashboard setting "Auto show game theater" alone)
 #
 # The payload must contain d3d9.dll, d3d9_dxvk.dll, openvr_api.dll (from the upstream TRLVR
 # release zip), trlvr_launcher.exe, trlvr_actions.json and bindings_*.json; openxr_loader.dll and
@@ -345,6 +346,41 @@ PY
   else
     say "SteamVR: not running (or vrcmd missing), so the per-app settings were not set."
     manual_vrsettings
+  fi
+fi
+
+# SteamVR's dashboard setting "Auto show game theater" sends every new game window to the theater
+# screen, where it floats instead of docking in the dashboard. Turn it off (it is global: flat apps
+# then stop opening on the theater screen by themselves). Undo: the same command with true.
+THEATER_KEY=dashboard.autoShowGameTheater
+if [ "$DO_VRSETTINGS" = 1 ]; then
+  THEATER_UNDO="$VRCMD --set-settings-bool $THEATER_KEY true"
+  if [ -x "$VRCMD" ] && pgrep -x "$VRSERVER" >/dev/null 2>&1; then
+    cur="$(timeout 15 "$VRCMD" --settings-bool "$THEATER_KEY" 2>/dev/null | sed -n 's/^[^=]*=//p' | head -n1)"
+    if [ "$cur" = false ]; then
+      say "SteamVR: $THEATER_KEY is already false."
+    elif timeout 15 "$VRCMD" --set-settings-bool "$THEATER_KEY" false >/dev/null 2>&1; then
+      say "SteamVR: $THEATER_KEY set to false${cur:+ (was $cur)}, so the game window starts docked. Undo: $THEATER_UNDO"
+    else
+      warn "vrcmd could not set $THEATER_KEY; turn off \"Auto show game theater\" under SteamVR Settings > Dashboard (Advanced)."
+    fi
+  else
+    python3 -I - "$HOME/.config/openvr/config/steamvr.vrsettings" <<'PY' || say "SteamVR: turn off \"Auto show game theater\" under SteamVR Settings > Dashboard (Advanced), or run '$VRCMD --set-settings-bool $THEATER_KEY false' while SteamVR is running."
+import json, os, shutil, sys, time
+p = sys.argv[1]
+if not os.path.isfile(p):
+    print("SteamVR: no steamvr.vrsettings yet (start SteamVR once)"); sys.exit(1)
+d = json.load(open(p, encoding="utf-8"))
+s = d.get("dashboard") if isinstance(d.get("dashboard"), dict) else {}
+if s.get("autoShowGameTheater") is False:
+    print("SteamVR: dashboard.autoShowGameTheater is already false."); sys.exit(0)
+was = s.get("autoShowGameTheater", "unset")
+shutil.copy2(p, p + ".legendframe-bak-" + time.strftime("%Y%m%d-%H%M%S"))
+s["autoShowGameTheater"] = False; d["dashboard"] = s
+json.dump(d, open(p + ".tmp", "w", encoding="utf-8"), indent=3)
+os.replace(p + ".tmp", p)
+print("SteamVR: wrote dashboard.autoShowGameTheater=false to steamvr.vrsettings (was %s), so the game window starts docked. Undo: set it to true under SteamVR Settings > Dashboard (Advanced)." % str(was).lower())
+PY
   fi
 fi
 

@@ -79,6 +79,16 @@ It does these steps, in this order:
    them by hand. With `--edit-vrsettings` and SteamVR closed, it writes the missing values into
    `~/.config/openvr/config/steamvr.vrsettings` instead (backup kept next to it), with the same
    keep-what-exists rule.
+   The same step also turns off SteamVR's dashboard setting **Auto show game theater**
+   (`dashboard.autoShowGameTheater`, on by default), which sends every new game window to the theater
+   screen where it floats; with it off the window starts docked in the dashboard and hides with it.
+   With SteamVR running it uses `/opt/steamvr/bin/linuxarm64/vrcmd --set-settings-bool
+   dashboard.autoShowGameTheater false`; otherwise it adds `"autoShowGameTheater": false` under
+   `"dashboard"` in `steamvr.vrsettings` (backup kept next to it, everything else untouched). Running it
+   again changes nothing, and `--no-vrsettings` skips it. The setting is global, so flat apps stop
+   opening on the theater screen by themselves. To undo it, run the same command with `true` while
+   SteamVR is running, or turn it back on under SteamVR Settings > Dashboard (Advanced); the
+   uninstaller leaves it as it is and prints that command.
 7. **Queues the shortcut.** It copies `frame/shortcut/trlvr-config.py` and `vdf.py` to
    `~/.local/share/legendframe/shortcut/` and writes a drop-in
    `~/.config/systemd/user/steam.service.d/60-legendframe.conf`, then runs
@@ -206,6 +216,7 @@ matter on the Frame (section `[vr]`):
 | `hud_items_x`, `hud_items_y` | `0`, `0` | `0.20`, `0.20` | Moves the whole item wheel (d-pad gear cross, every slot) inside the game's interface, same units as `hud_offset`. `hud_items_hide` (`0`) hides it. Also sliders in the settings panel; the gameplay HUD stays in view while the panel is open. |
 | `hud_ammo_x`, `hud_ammo_y` | `0`, `0` | `0.20`, `-0.20` | The same for the weapon and ammo readout (icon and numbers), with `hud_ammo_hide`. |
 | `hud_health_x`, `hud_health_y` | `0`, `0` | `0.20`, `-0.20` | The same for the health bar (with the breath bar above it), with `hud_health_hide`. Seeded like the ammo readout so the two stay together. Reset to defaults in the panel puts all three elements and `hud_offset` back to the Frame values. |
+| `frame_quick_draw` | `1` | `1` | In the `[controls]` section, not `[vr]`. `1` lets the fire trigger or X draw the pistols from holstered in immersive first person; `0` turns the quick draw off. The mod writes it itself on its first run. |
 | `hud_debug` | `0` | `0` | Logs the player HUD's item tree (fade groups, anchor, which element each part belongs to) and the HUD screens to `trlvr.log`. |
 | `overlay_vr_width_degrees` | `50` | `50` | Settings panel width in the headset. 1.1.0 used 38 (too small to read); the installer moves an unchanged 38 to 50. Also a panel slider. |
 | `overlay_vr_text_scale` | `1.25` | `1.25` | Panel text and control size; 1 = the 1.1.0 layout (768 px of content). Larger fits less at once. Panel slider; applies when the panel next opens. |
