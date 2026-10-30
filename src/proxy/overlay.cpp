@@ -589,12 +589,6 @@ namespace trlvr
             slider("Menu and HUD scale", &c.ui_scale, 0.1f, 2.0f, "%.2f",
                    L"vr", L"ui_scale", "Size of menus and the HUD in the "
                    "headset.");
-            slider("HUD offset X", &c.hud_offset_x, -0.5f, 0.5f, "%+.2f",
-                   L"vr", L"hud_offset_x", "Shifts the gameplay HUD "
-                   "sideways in your view. Positive is to the right.");
-            slider("HUD offset Y", &c.hud_offset_y, -0.5f, 0.5f, "%+.2f",
-                   L"vr", L"hud_offset_y", "Shifts the gameplay HUD up or "
-                   "down in your view. Positive is up.");
             toggle("Pause menu fixed in the room", &c.pause_world_locked,
                    L"vr", L"pause_world_locked",
                    "On: the pause menu stays level where you were looking "
@@ -609,11 +603,51 @@ namespace trlvr
 
         void hud_elements_section(Config& c)
         {
-            ImGui::TextWrapped("Moves the item wheel and the ammo readout, "
-                               "each as one piece, in the same units as HUD "
-                               "offset (which still moves the whole HUD on "
-                               "top). While this window is open the HUD "
-                               "stays in view, so you can watch them move.");
+            // The Frame defaults frame/install.sh seeds.
+            struct Default
+            {
+                float* value;
+                const wchar_t* key;
+                float frame;
+            };
+            const Default defaults[] = {
+                { &c.hud_offset_x, L"hud_offset_x", -0.08f },
+                { &c.hud_offset_y, L"hud_offset_y", 0.08f },
+                { &c.hud_health_x, L"hud_health_x", 0.20f },
+                { &c.hud_health_y, L"hud_health_y", -0.20f },
+                { &c.hud_ammo_x, L"hud_ammo_x", 0.20f },
+                { &c.hud_ammo_y, L"hud_ammo_y", -0.20f },
+                { &c.hud_items_x, L"hud_items_x", 0.20f },
+                { &c.hud_items_y, L"hud_items_y", 0.20f },
+            };
+            ImGui::TextWrapped("Moves the HUD as a whole, and the health "
+                               "bar, the ammo readout and the item wheel "
+                               "each as one piece on top of that. While "
+                               "this window is open the HUD stays in view, "
+                               "so you can watch them move.");
+            ImGui::SeparatorText("Whole HUD");
+            slider("Whole HUD left / right", &c.hud_offset_x, -0.5f, 0.5f,
+                   "%+.2f", L"vr", L"hud_offset_x", "Moves all of the "
+                   "gameplay HUD together. Positive is to the right.");
+            slider("Whole HUD down / up", &c.hud_offset_y, -0.5f, 0.5f,
+                   "%+.2f", L"vr", L"hud_offset_y", "Moves all of the "
+                   "gameplay HUD together. Positive is up.");
+            ImGui::SeparatorText("Health");
+            slider("Health left / right", &c.hud_health_x, -1.0f, 1.0f,
+                   "%+.2f", L"vr", L"hud_health_x", "Moves the health bar, "
+                   "and the breath bar above it. Positive is to the "
+                   "right.");
+            slider("Health down / up", &c.hud_health_y, -1.0f, 1.0f, "%+.2f",
+                   L"vr", L"hud_health_y", "Moves the health bar. Positive "
+                   "is up.");
+            ImGui::SeparatorText("Ammo");
+            slider("Ammo left / right", &c.hud_ammo_x, -1.0f, 1.0f, "%+.2f",
+                   L"vr", L"hud_ammo_x", "Moves the weapon and ammo readout, "
+                   "icon and numbers together. Positive is to the right.");
+            slider("Ammo down / up", &c.hud_ammo_y, -1.0f, 1.0f, "%+.2f",
+                   L"vr", L"hud_ammo_y", "Moves the weapon and ammo readout. "
+                   "Positive is up.");
+            ImGui::SeparatorText("Item wheel");
             slider("Item wheel left / right", &c.hud_items_x, -1.0f, 1.0f,
                    "%+.2f", L"vr", L"hud_items_x", "Moves the whole d-pad "
                    "gear cross, every slot with it. Positive is to the "
@@ -621,14 +655,16 @@ namespace trlvr
             slider("Item wheel down / up", &c.hud_items_y, -1.0f, 1.0f,
                    "%+.2f", L"vr", L"hud_items_y", "Moves the whole d-pad "
                    "gear cross. Positive is up.");
-            ImGui::Spacing();
-            slider("Ammo left / right", &c.hud_ammo_x, -1.0f, 1.0f, "%+.2f",
-                   L"vr", L"hud_ammo_x", "Moves the weapon and ammo readout, "
-                   "icon and numbers together. Positive is to the right.");
-            slider("Ammo down / up", &c.hud_ammo_y, -1.0f, 1.0f, "%+.2f",
-                   L"vr", L"hud_ammo_y", "Moves the weapon and ammo readout. "
-                   "Positive is up.");
             ImGui::Separator();
+            if (ImGui::Button("Reset to defaults"))
+                for (const Default& d : defaults)
+                {
+                    *d.value = d.frame;
+                    save_float(L"vr", d.key, d.frame);
+                }
+            help("Puts the whole HUD, the health bar, the ammo readout and "
+                 "the item wheel back where LegendFrame places them on the "
+                 "Steam Frame, and saves it.");
             toggle("Log HUD parts", &c.hud_debug, L"vr", L"hud_debug",
                    "Writes the HUD's parts, and which element each belongs "
                    "to, to trlvr.log. Useful if a slider moves the wrong "
