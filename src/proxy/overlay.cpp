@@ -609,38 +609,30 @@ namespace trlvr
 
         void hud_elements_section(Config& c)
         {
-            ImGui::TextWrapped("Moves single parts of the gameplay HUD, in "
-                               "the same units as HUD offset (which still "
-                               "moves the whole HUD on top).");
-            ImGui::SeparatorText("Item wheel (gear cross)");
-            slider("Item wheel X", &c.hud_items_x, -1.0f, 1.0f, "%+.2f",
-                   L"vr", L"hud_items_x", "Moves the d-pad gear cross "
-                   "sideways. Positive is to the right.");
-            slider("Item wheel Y", &c.hud_items_y, -1.0f, 1.0f, "%+.2f",
-                   L"vr", L"hud_items_y", "Moves the d-pad gear cross up or "
-                   "down. Positive is up.");
-            slider("Item wheel size", &c.hud_items_scale, 0.5f, 2.0f, "%.2f",
-                   L"vr", L"hud_items_scale", "Resizes the gear cross around "
-                   "its centre.");
-            toggle("Hide the item wheel", &c.hud_items_hide, L"vr",
-                   L"hud_items_hide", "Never draws the d-pad gear cross. The "
-                   "gear menu still works.");
-            ImGui::SeparatorText("Ammo counter");
-            slider("Ammo X", &c.hud_ammo_x, -1.0f, 1.0f, "%+.2f", L"vr",
-                   L"hud_ammo_x", "Moves the ammo counter sideways. Positive "
-                   "is to the right.");
-            slider("Ammo Y", &c.hud_ammo_y, -1.0f, 1.0f, "%+.2f", L"vr",
-                   L"hud_ammo_y", "Moves the ammo counter up or down. "
+            ImGui::TextWrapped("Moves the item wheel and the ammo readout, "
+                               "each as one piece, in the same units as HUD "
+                               "offset (which still moves the whole HUD on "
+                               "top). While this window is open the HUD "
+                               "stays in view, so you can watch them move.");
+            slider("Item wheel left / right", &c.hud_items_x, -1.0f, 1.0f,
+                   "%+.2f", L"vr", L"hud_items_x", "Moves the whole d-pad "
+                   "gear cross, every slot with it. Positive is to the "
+                   "right.");
+            slider("Item wheel down / up", &c.hud_items_y, -1.0f, 1.0f,
+                   "%+.2f", L"vr", L"hud_items_y", "Moves the whole d-pad "
+                   "gear cross. Positive is up.");
+            ImGui::Spacing();
+            slider("Ammo left / right", &c.hud_ammo_x, -1.0f, 1.0f, "%+.2f",
+                   L"vr", L"hud_ammo_x", "Moves the weapon and ammo readout, "
+                   "icon and numbers together. Positive is to the right.");
+            slider("Ammo down / up", &c.hud_ammo_y, -1.0f, 1.0f, "%+.2f",
+                   L"vr", L"hud_ammo_y", "Moves the weapon and ammo readout. "
                    "Positive is up.");
-            slider("Ammo size", &c.hud_ammo_scale, 0.5f, 2.0f, "%.2f", L"vr",
-                   L"hud_ammo_scale", "Resizes the ammo counter around its "
-                   "centre.");
-            toggle("Hide the ammo counter", &c.hud_ammo_hide, L"vr",
-                   L"hud_ammo_hide", "Never draws the ammo counter.");
             ImGui::Separator();
             toggle("Log HUD parts", &c.hud_debug, L"vr", L"hud_debug",
-                   "Writes which HUD parts were found, and where, to "
-                   "trlvr.log. Useful if a slider moves the wrong thing.");
+                   "Writes the HUD's parts, and which element each belongs "
+                   "to, to trlvr.log. Useful if a slider moves the wrong "
+                   "thing.");
         }
 
         void camera_section(Config& c)

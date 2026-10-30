@@ -202,9 +202,9 @@ matter on the Frame (section `[vr]`):
 | `submit_wait` | `0` | `0` | `0` = no CPU wait for the GPU before `Submit`. `1` is the 1.1.0 behaviour (slower). OpenXR path is unaffected. |
 | `god_carry_fix` | `1` | `1` | Fix for upstream god-mode carry smearing when Lara is drawn with a second model. `0` is the 1.1.0 carry, for A/B. |
 | `hud_offset_x`, `hud_offset_y` | `0`, `0` | `-0.08`, `0.08` | Nudges the gameplay HUD only (NDC units). Also sliders in the settings panel. |
-| `hud_items_x`, `hud_items_y` | `0`, `0` | `0.20`, `0.20` | Moves the item wheel (d-pad gear cross) inside the game's interface, same units as `hud_offset`. `hud_items_scale` (`1`) and `hud_items_hide` (`0`) resize or hide it. Also in the settings panel. |
-| `hud_ammo_x`, `hud_ammo_y` | `0`, `0` | `0.20`, `-0.20` | The same for the ammo counter, with `hud_ammo_scale` and `hud_ammo_hide`. |
-| `hud_debug` | `0` | `0` | Logs each HUD part found (fade groups, anchor) and the HUD screens to `trlvr.log`. |
+| `hud_items_x`, `hud_items_y` | `0`, `0` | `0.20`, `0.20` | Moves the whole item wheel (d-pad gear cross, every slot) inside the game's interface, same units as `hud_offset`. `hud_items_hide` (`0`) hides it. Also sliders in the settings panel; the gameplay HUD stays in view while the panel is open. |
+| `hud_ammo_x`, `hud_ammo_y` | `0`, `0` | `0.20`, `-0.20` | The same for the weapon and ammo readout (icon and numbers), with `hud_ammo_hide`. |
+| `hud_debug` | `0` | `0` | Logs the player HUD's item tree (fade groups, anchor, which element each part belongs to) and the HUD screens to `trlvr.log`. |
 | `overlay_vr_width_degrees` | `50` | `50` | Settings panel width in the headset. 1.1.0 used 38 (too small to read); the installer moves an unchanged 38 to 50. Also a panel slider. |
 | `overlay_vr_text_scale` | `1.25` | `1.25` | Panel text and control size; 1 = the 1.1.0 layout (768 px of content). Larger fits less at once. Panel slider; applies when the panel next opens. |
 | `overlay_vr_resolution` | `1536` | `1536` | Panel texture size, square, 512 to 4096, with mipmaps. About 12 MB of video memory at 1536, made the first time the panel opens. |

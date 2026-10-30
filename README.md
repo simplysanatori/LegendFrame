@@ -104,9 +104,9 @@ Edit `trlvr.ini` in the game folder with the game closed. The mod writes every k
 | `god_carry_fix` | `1` | Keeps carried characters whole in god mode. `0` is the original carry |
 | `vr_runtime` | `openvr` | The installer sets `openvr`. `openxr` leaves the game flat under Proton 11 ARM64 |
 | `hud_offset_x`, `hud_offset_y` | `-0.08`, `0.08` | Moves the gameplay HUD. Also sliders in the settings panel |
-| `hud_items_x`, `hud_items_y` | `0.20`, `0.20` | Moves the item wheel (the d-pad gear cross), in the same units as `hud_offset`. `hud_items_scale` (`1.0`) resizes it, `hud_items_hide` (`0`) hides it. All in the settings panel |
-| `hud_ammo_x`, `hud_ammo_y` | `0.20`, `-0.20` | Moves the ammo counter the same way. `hud_ammo_scale` and `hud_ammo_hide` work like the item wheel's |
-| `hud_debug` | `0` | `1` logs which HUD parts were found and where, if a slider moves the wrong thing |
+| `hud_items_x`, `hud_items_y` | `0.20`, `0.20` | Moves the whole item wheel (the d-pad gear cross, every slot), in the same units as `hud_offset`. Sliders in the settings panel, where the HUD stays in view while you move them. `hud_items_hide` (`0`) hides it |
+| `hud_ammo_x`, `hud_ammo_y` | `0.20`, `-0.20` | Moves the weapon and ammo readout, icon and numbers together, the same way. `hud_ammo_hide` (`0`) hides it |
+| `hud_debug` | `0` | `1` logs the HUD's parts and which element each belongs to, if a slider moves the wrong thing |
 | `overlay_vr_width_degrees` | `50` | How wide the settings panel looks in the headset. The original mod used 38, which an install moves to 50. Also a slider in the panel |
 | `overlay_vr_text_scale` | `1.25` | Text and control size in the settings panel. Larger fits less at once. Also a slider in the panel; it applies the next time the panel opens |
 | `overlay_vr_resolution` | `1536` | The settings panel's texture size in pixels. Higher is sharper when you lean in |

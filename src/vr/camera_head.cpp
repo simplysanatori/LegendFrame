@@ -21791,6 +21791,11 @@ namespace trlvr
         }
     }
 
+    bool camera_retail_gear_cross_hidden()
+    {
+        return third_person_gear_hud_hidden();
+    }
+
     namespace
     {
         int g_view_first_person = -1;   // -1: not read from config yet
