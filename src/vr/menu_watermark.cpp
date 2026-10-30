@@ -6,10 +6,10 @@
 
 #include <windows.h>
 
-// "TRL VR 1.1.0 (OpenXR)" on the main menu (user 2026-10-27, after
-// TR7-Menu-Hook's own watermark). The game's font queues text and draws it at
-// its next Font::Flush, so printing here -- at present, after this frame's
-// flush -- shows it from the next frame on, without hooking Font::Flush
+// "LegendFrame 1.0.0 / TRL VR 1.1.0 (OpenVR)" on the main menu (user
+// 2026-10-27, after TR7-Menu-Hook's own watermark; names the fork 2026-10-30).
+// The game's font queues text and draws it at its next Font::Flush, so
+// printing here -- at present, after this frame's flush -- shows it from the next frame on, without hooking Font::Flush
 // (TR7-Menu-Hook hooks that). Addresses are the retail build's (TR7-Menu-Hook
 // uses the same; PrintFormatted / SetScale confirmed by our symbol remap,
 // SetCursor by its code: it stores x, y at 0x0107F68C / 0x0107F690).
@@ -43,10 +43,10 @@ namespace trlvr
                 return;
             const VrBackend backend = vr_backend();
             const char* text = backend == VrBackendOpenXr
-                ? "TRL VR " TRLVR_VERSION " (OpenXR)"
+                ? "LegendFrame " LEGENDFRAME_VERSION " / TRL VR " TRLVR_VERSION " (OpenXR)"
                 : backend == VrBackendOpenVr
-                    ? "TRL VR " TRLVR_VERSION " (OpenVR)"
-                    : "TRL VR " TRLVR_VERSION " (no headset)";
+                    ? "LegendFrame " LEGENDFRAME_VERSION " / TRL VR " TRLVR_VERSION " (OpenVR)"
+                    : "LegendFrame " LEGENDFRAME_VERSION " / TRL VR " TRLVR_VERSION " (no headset)";
             // TR7-Menu-Hook prints at (5, 430) in the 640x480 layout; this
             // goes on the line above it.
             reinterpret_cast<PFN_SetCursor>(kFontSetCursor)(5.0f, 414.0f);
