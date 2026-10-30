@@ -119,6 +119,15 @@
           }
         },
         {
+          "path": "/user/hand/right/input/bumper",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/trlvr/in/bumper_right"
+            }
+          }
+        },
+        {
           "path": "/user/hand/right/input/thumbstick",
           "mode": "joystick",
           "inputs": {

@@ -447,6 +447,10 @@ namespace trlvr
         // fire trigger or X draws the pistols at once (the hips' draw; a hip
         // grip holsters them). [controls] frame_quick_draw.
         bool frame_quick_draw = true;
+        // Steam Frame, immersive first person: the right bumper held this
+        // long (seconds; 0 = a tap) holsters whatever is drawn, through the
+        // hip / shoulder holster state. [controls] frame_holster_hold.
+        float frame_holster_hold = 0.3f;
         // Controller aim ray: 0 = main hand; 1 = both hands averaged when
         // two pistols are drawn; 2 = those hand(s) averaged with the HMD.
         int aim_mode = 0;

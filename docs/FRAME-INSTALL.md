@@ -217,6 +217,7 @@ matter on the Frame (section `[vr]`):
 | `hud_ammo_x`, `hud_ammo_y` | `0`, `0` | `0.20`, `-0.20` | The same for the weapon and ammo readout (icon and numbers), with `hud_ammo_hide`. |
 | `hud_health_x`, `hud_health_y` | `0`, `0` | `0.20`, `-0.20` | The same for the health bar (with the breath bar above it), with `hud_health_hide`. Seeded like the ammo readout so the two stay together. Reset to defaults in the panel puts all three elements and `hud_offset` back to the Frame values. |
 | `frame_quick_draw` | `1` | `1` | In the `[controls]` section, not `[vr]`. `1` lets the fire trigger or X draw the pistols from holstered in immersive first person; `0` turns the quick draw off. The mod writes it itself on its first run. |
+| `frame_holster_hold` | `0.3` | `0.3` | In the `[controls]` section. Seconds the right bumper is held to holster what is drawn in immersive first person (0 to 2); `0` holsters on a tap. |
 | `hud_debug` | `0` | `0` | Logs the player HUD's item tree (fade groups, anchor, which element each part belongs to) and the HUD screens to `trlvr.log`. |
 | `overlay_vr_width_degrees` | `50` | `50` | Settings panel width in the headset. 1.1.0 used 38 (too small to read); the installer moves an unchanged 38 to 50. Also a panel slider. |
 | `overlay_vr_text_scale` | `1.25` | `1.25` | Panel text and control size; 1 = the 1.1.0 layout (768 px of content). Larger fits less at once. Panel slider; applies when the panel next opens. |
@@ -261,7 +262,7 @@ The Frame has its own, `bindings_frame_controller.json`:
 | Left grip | Throw the grapple | |
 | Right grip | Lock on | |
 | Left bumper | Hold it for the board-mode finger flick | |
-| Right bumper | Not bound | |
+| Right bumper | In immersive first person, hold it (0.3 s) to holster whatever is drawn: the pistols go to the hips, the long gun to the shoulder | |
 | Steam buttons | SteamVR's (dashboard, recentre). Never bound | |
 
 The d-pad is the retail gear cross (it flashes the item wheel) in every mode; the left stick's radial
@@ -275,7 +276,13 @@ Quick draw (immersive first person, `[controls] frame_quick_draw = 1`, the defau
 holstered and both hands empty, the fire trigger or X draws the pistols at once through the hips' draw,
 so a hip grip holsters them. That trigger pull does not fire; the next one does. With a gun out X is
 precision aim, as the left trigger is. `frame_quick_draw = 0` turns it off (X and the trigger then do
-nothing with the guns away, as before). Third-person precision aim on X aims where you look; in first
+nothing with the guns away, as before). The right bumper held for `frame_holster_hold` seconds (0.3 by
+default) holsters whatever is drawn through the same holster state: the pistols to the hips, the long
+gun to the shoulder, two-handed or not, and in single-pistol mode each drawn pistol to its own hip. It
+does nothing with nothing drawn, in menus, in binocular view, while hanging or climbing, with the
+grapple out, or in third person (the game has no holster key there; it puts the guns away itself when
+combat ends). The hip and shoulder reaches still holster too, and the quick draw works as before.
+Third-person precision aim on X aims where you look; in first
 person the guns follow the hand, or the headset with `controller_aim = 0`. The in-game prompts name
 the Frame's buttons in English. Other
 controllers keep the upstream layout in

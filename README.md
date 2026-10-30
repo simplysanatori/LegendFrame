@@ -109,12 +109,12 @@ The Frame controllers have their own layout. The upstream one was made for Oculu
 | Left grip | Throw the grapple | |
 | Right grip | Lock on | |
 | Left bumper | Hold it for the board-mode finger flick | |
-| Right bumper | Not bound | |
+| Right bumper | In immersive first person, hold it (0.3 s) to holster whatever is drawn: the pistols go to the hips, the long gun to the shoulder | |
 | Steam buttons | SteamVR's (dashboard, recentre). Never bound | |
 
 The d-pad is the game's own gear cross, the same four items in the same places, and the item wheel flashes up when I press it. It works in every mode. D-pad down is the game's weapon select in first person as well: it steps to the other gun Lara carries, and when she only has the pistols the game shows its weapon selector. The holsters follow whatever the game did, so a hip or shoulder grip still puts the gun away. In immersive first person d-pad right raises the binoculars through the same hand state as the belt. While the binoculars are up, d-pad right puts them away, d-pad up still uses a medipack, and down and left wait. The left stick's radial gear menu still works as before.
 
-Quick draw: in immersive first person, with the guns holstered and nothing in my hands, a pull of the fire trigger (or a press of X) draws the pistols straight away, the same draw as reaching to the hips. The pull that draws doesn't fire, the next one does, and a hip grip holsters them as usual. With a gun out, X is precision aim, like the left trigger. `frame_quick_draw = 0` in the `[controls]` section of `trlvr.ini` turns the quick draw off. In third person X's precision aim draws the guns and aims where I look. In first person the guns aim where my hand points, and `controller_aim = 0` makes them follow the headset instead.
+Quick draw: in immersive first person, with the guns holstered and nothing in my hands, a pull of the fire trigger (or a press of X) draws the pistols straight away, the same draw as reaching to the hips. The pull that draws doesn't fire, the next one does, and a hip grip holsters them as usual. To put the guns away I hold the right bumper for a moment: the pistols go back to the hips and the long gun to the shoulder, the same as reaching there, so the trigger draws and the bumper holsters. The Frame's cameras often lose the controllers at the hips and behind the shoulder, which makes the button the dependable way, but the hip and shoulder reaches still holster too. With a gun out, X is precision aim, like the left trigger. `frame_quick_draw = 0` in the `[controls]` section of `trlvr.ini` turns the quick draw off. In third person X's precision aim draws the guns and aims where I look. In first person the guns aim where my hand points, and `controller_aim = 0` makes them follow the headset instead.
 
 The in-game prompts name the Frame's buttons (A, B, X, Y, D-pad Up and so on, Menu, View), in English. Other languages keep upstream's names for now. In immersive first person Y gives way to the chest pouch, as upstream.
 
@@ -137,6 +137,7 @@ Edit `trlvr.ini` in the game folder with the game closed. The mod writes every k
 | `hud_ammo_x`, `hud_ammo_y` | `0.20`, `-0.20` | Moves the weapon and ammo readout, icon and numbers together, the same way. `hud_ammo_hide` (`0`) hides it |
 | `hud_health_x`, `hud_health_y` | `0.20`, `-0.20` | Moves the health bar, with the breath bar above it, the same way. `hud_health_hide` (`0`) hides it. Reset to defaults in the settings panel puts these three and `hud_offset` back to the values in this table |
 | `frame_quick_draw` | `1` | In the `[controls]` section. With the guns holstered in immersive first person, the fire trigger or X draws the pistols straight away. `0` turns that off |
+| `frame_holster_hold` | `0.3` | In the `[controls]` section. How long, in seconds, the right bumper is held to holster the guns in immersive first person. `0` holsters on a tap |
 | `hud_debug` | `0` | `1` logs the HUD's parts and which element each belongs to, if a slider moves the wrong thing |
 | `overlay_vr_width_degrees` | `50` | How wide the settings panel looks in the headset. The original mod used 38, which an install moves to 50. Also a slider in the panel |
 | `overlay_vr_text_scale` | `1.25` | Text and control size in the settings panel. Larger fits less at once. Also a slider in the panel; it applies the next time the panel opens |

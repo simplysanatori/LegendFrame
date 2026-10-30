@@ -2417,6 +2417,79 @@ namespace trlvr
         // person and as the action trigger does with a gun out.
         ULONGLONG g_frame_z_until = 0;
 
+        // First-person immersive button holster (Frame): the right bumper
+        // held for [controls] frame_holster_hold seconds (0 = a tap) puts
+        // away whatever is drawn, through the same holster state as the
+        // grips: the pistols to the hips, the long gun (two-handed or not)
+        // to the shoulder. Once per press, when the hold is reached; the
+        // reaches and the quick draw work as before afterwards. The inside-
+        // out tracking loses the hands at the hips and behind the shoulder,
+        // so this is the dependable way to holster on the Frame. Third
+        // person is left alone: the game has no holster key of its own (it
+        // puts the guns away when combat ends) and the mod sends none.
+        void frame_bumper_holster(bool active, ULONGLONG now)
+        {
+            static bool was = false;
+            static bool spent = false;
+            static ULONGLONG down_at = 0;
+            static ULONGLONG last_call = 0;
+            // Not called for a while (settings panel, calibration, a movie,
+            // focus lost): a bumper still held from then is not a new hold.
+            const bool fresh = last_call && now - last_call < 250;
+            last_call = now;
+            const bool down = xr_input_frame_button(XrFrameBumperRight);
+            if (!down)
+            {
+                was = spent = false;
+                return;
+            }
+            if (!was)
+            {
+                was = true;
+                down_at = now;
+                spent = !fresh;
+            }
+            if (spent || now - down_at <
+                    (ULONGLONG)(config().frame_holster_hold * 1000.0f))
+                return;
+            spent = true;
+            const char* why = nullptr;
+            if (!config().immersive_controls || !camera_first_person_active())
+                why = "not in immersive first person";
+            else if (camera_first_person_ledge_hanging() ||
+                     camera_first_person_bar_hanging() ||
+                     camera_first_person_vine_climbing())
+                why = "hanging or climbing";
+            else if (camera_first_person_grapple_state() != 0 ||
+                     g_grapple_hand >= 0)
+                why = "the grapple is out";
+            else if (!active)
+                why = "a menu is open";
+            else if (binocular_view_now() || g_frame_binocular_open_at)
+                why = "binocular view";
+            else if (!g_holster_drawn[0] && !g_holster_drawn[1])
+                why = "nothing drawn";
+            if (why)
+            {
+                log("controls: [Frame] holster: nothing put away (%s)", why);
+                return;
+            }
+            const bool long_gun =
+                weapon_slot_kind(selected_weapon_slot()) == WeaponLong;
+            const char* what = long_gun
+                ? "the long gun to the shoulder"
+                : g_holster_drawn[0] && g_holster_drawn[1]
+                    ? "both pistols to the hips"
+                    : g_holster_drawn[0] ? "the left pistol to its hip"
+                                         : "the right pistol to its hip";
+            g_holster_drawn[0] = g_holster_drawn[1] = false;
+            g_pistol_draw_hand = -1;
+            g_pistol_drawn_at = 0;
+            reinterpret_cast<PFN_PlayerCombat>(kPlayerInvEndCombatMode)();
+            vr_input_weapon_haptic(false, 0.2f);
+            log("controls: [Frame] holster: put %s (right bumper)", what);
+        }
+
         void frame_first_person_draw(bool active, bool fire_trigger,
                                      int fire_hand)
         {
@@ -2424,6 +2497,7 @@ namespace trlvr
             static bool x_was = false;
             if (!xr_input_frame())
                 return;
+            frame_bumper_holster(active, GetTickCount64());
             const bool x = digital(g_game[GameAim].handle);
             const bool trigger_pressed = fire_trigger && !trigger_was &&
                 !g_tuning_trigger_hold[fire_hand];
