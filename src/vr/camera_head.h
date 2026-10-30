@@ -43,6 +43,9 @@ namespace trlvr
     // Show the game's own flat gear cross (HUD fade group 5) for a moment;
     // called every frame keeps it up. For the radial gear menu.
     void camera_show_retail_gear_cross();
+    // Third-person immersive keeps the retail gear cross (fade group 5)
+    // hidden, the 3D one standing in for it.
+    bool camera_retail_gear_cross_hidden();
     // The chosen view: first_person in trlvr.ini at start, switched live
     // (user request 2026-10-06) by camera_toggle_view -- the right stick's
     // long press with immersive controls, or \ on the keyboard. First person is only
