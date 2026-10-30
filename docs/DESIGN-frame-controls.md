@@ -196,19 +196,48 @@ unchanged.
 
 1. Right Menu: pause on a tap, settings panel on a 0.6 s hold. Left View: PDA (Tab).
 2. D-pad = the gear cross in **all** modes, menus = arrow keys, and it flashes the retail cross.
-   In immersive first person, right and down go through the belt / holster state instead of the
-   bare keys: right sets `g_binocular_view` + `g_binocular_key_pulse` as raising the binoculars to
-   the face does (not with a gun out, as at the belt; a view the game never showed is dropped after
-   1.5 s), down swaps the drawn gun the way a hip / shoulder grip does (`select_weapon_kind(...,
-   true)` + `g_holster_drawn`), or only selects the other one when holstered. In binocular view:
+   In immersive first person, right goes through the belt state instead of the bare key: it sets
+   `g_binocular_view` + `g_binocular_key_pulse` as raising the binoculars to the face does (not with
+   a gun out, as at the belt; a view the game never showed is dropped after 1.5 s). Down sends End
+   in first person too (second pass, after the headset test: the swap-only version did nothing when
+   Lara had only the pistols, while End in third person showed the weapon selector). Retail weapon
+   select goes through the inventory cycle `0x005B13C0` (the only gameplay writer of the requested
+   slot `PlayerData+0x3E5` besides `playerInvSelectWeapon`): it steps a category list to the next
+   slot Lara carries and requests it, and `playerInvProcess` swaps to it (animated with the guns out,
+   at once otherwise); a non-weapon entry would go to the item slot `+0x3E2`; either way it triggers
+   the weapon HUD fade groups 3 and 1, so with only the pistols the game just shows its selector.
+   I found no grenade-type cycle on End (the pouch / K throw what Lara carries); the watcher logs
+   `+0x3E2` if End ever changes it. `frame_weapon_select_follow` watches the press for 1.5 s:
+   guns drawn, the hands follow the requested weapon (`g_holster_drawn` both for the long gun, the
+   main hand only for single pistols); holstered, a pending request is made the selection at once
+   (`select_weapon_kind(kind, false)`) so the hips still draw the pistols and the shoulder the long
+   gun; if the game draws by itself (`+0x440 & 0x03000000` with the holsters empty) the holster
+   state adopts it. Each outcome is a `[Frame] weapon select:` log line. In binocular view:
    right closes it (`binoculars_put_back`, or the key for a view opened by its key, as a grip does),
    up (medipack) works because the view lets the medipack through already, down and left are ignored.
 3. Board flick on the Frame: left bumper held (`bumper_left`). Y keeps upstream's tap / long press.
 4. Right bumper unbound. X precision aim, A jump, B crouch / roll / dive.
 5. Prompts: Frame branch in `input_labels.cpp` (`frame_replacement`), holster setup cancel text.
    English only.
+6. Quick draw (second pass; `[controls] frame_quick_draw`, default 1, Frame only). In immersive
+   first person with both holsters empty and no gear in hand, the fire trigger (right; left when
+   left-handed) or X draws the pistols through the hips' path (`select_weapon_kind(WeaponPistols,
+   false)`, `g_holster_drawn`, `g_pistol_draw_hand`, `kPlayerInvEnterIndicatorMode`), so the hip grip
+   still holsters them; single pistols draw only that hand's. The trigger is the natural input: it
+   is the gun's own control, and with the guns holstered the fire trigger does nothing in first
+   person (`GameFire` is dropped until a gun is drawn); the action trigger stays Interact. Not in
+   menus, while hanging, with the grapple out (its pull owns the triggers), in binocular view,
+   pointing at an ImGui menu, or when retail says combat is not allowed. The drawing pull is held
+   back (`g_tuning_trigger_hold`) so it does not also fire. The aim then follows the hand as usual.
+7. X in immersive first person (second pass): upstream drops it there because retail `Z` drew the
+   guns straight into combat past the holster state (floating guns). On the Frame, X with the guns
+   holstered is the quick draw above, and with a gun out a 120 ms `Z` pulse, the precision aim
+   toggle the action trigger also gives. The owner's "head-tracked aim" was third-person X:
+   precision aim (camera mode 13) with `hmd_aim` aims along the headset; that is unchanged. First
+   person aims with the hand (`controller_aim = 1`); `controller_aim = 0` aims with the headset.
 
 Code: optional actions `dpad_up/right/down/left`, `view`, `bumper_left` in `input/actions.json`;
 `xr_input_frame()` / `xr_input_frame_button()` (OpenVR only, false on OpenXR); the Frame block in
 `vr_input.cpp` (`frame_logical_actions`, `frame_dpad_update`, `frame_thumb_button`,
-`frame_overlay_buttons`), each called from one line; `VrControllerFrame` for the labels.
+`frame_overlay_buttons`, `frame_first_person_draw`; `frame_weapon_select_follow` runs inside
+`frame_dpad_update`), each called from one line; `VrControllerFrame` for the labels.

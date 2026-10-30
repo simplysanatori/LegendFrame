@@ -96,7 +96,7 @@ The Frame controllers have their own layout. The upstream one was made for Oculu
 | Right stick | Turn. Click switches weapons, double click opens the PDA, long press uses the binoculars (with immersive controls it switches between first and third person) | Scroll |
 | A | Jump / surface | Select |
 | B | Crouch / roll / dive | Back |
-| X | Precision aim (on / off) | |
+| X | Precision aim (on / off). In immersive first person with the guns away it draws the pistols | |
 | Y | Grenade / flare. A long press is the personal light with immersive controls off | |
 | D-pad up | Medipack | Up |
 | D-pad right | Binoculars. Press it again to put them away | Right |
@@ -105,16 +105,18 @@ The Frame controllers have their own layout. The upstream one was made for Oculu
 | Menu (right) | Tap to pause. Hold it 0.6 s for the settings panel | Back |
 | View (left) | PDA | |
 | Left trigger | Action / interact / pull the grapple | |
-| Right trigger | Fire | Select |
+| Right trigger | Fire. In immersive first person with the guns away it draws the pistols | Select |
 | Left grip | Throw the grapple | |
 | Right grip | Lock on | |
 | Left bumper | Hold it for the board-mode finger flick | |
 | Right bumper | Not bound | |
 | Steam buttons | SteamVR's (dashboard, recentre). Never bound | |
 
-The d-pad is the game's own gear cross, the same four items in the same places, and the item wheel flashes up when I press it. It works in every mode. In immersive first person it goes through the same hand state as the belt and holsters: d-pad right raises the binoculars, and d-pad down swaps the gun I have out (with the guns away it only picks the other one). While the binoculars are up, d-pad right puts them away, d-pad up still uses a medipack, and down and left wait. The left stick's radial gear menu still works as before.
+The d-pad is the game's own gear cross, the same four items in the same places, and the item wheel flashes up when I press it. It works in every mode. D-pad down is the game's weapon select in first person as well: it steps to the other gun Lara carries, and when she only has the pistols the game shows its weapon selector. The holsters follow whatever the game did, so a hip or shoulder grip still puts the gun away. In immersive first person d-pad right raises the binoculars through the same hand state as the belt. While the binoculars are up, d-pad right puts them away, d-pad up still uses a medipack, and down and left wait. The left stick's radial gear menu still works as before.
 
-The in-game prompts name the Frame's buttons (A, B, X, Y, D-pad Up and so on, Menu, View), in English. Other languages keep upstream's names for now. In immersive first person, X and Y give way to the hip holsters and the chest pouch, as upstream.
+Quick draw: in immersive first person, with the guns holstered and nothing in my hands, a pull of the fire trigger (or a press of X) draws the pistols straight away, the same draw as reaching to the hips. The pull that draws doesn't fire, the next one does, and a hip grip holsters them as usual. With a gun out, X is precision aim, like the left trigger. `frame_quick_draw = 0` in the `[controls]` section of `trlvr.ini` turns the quick draw off. In third person X's precision aim draws the guns and aims where I look. In first person the guns aim where my hand points, and `controller_aim = 0` makes them follow the headset instead.
+
+The in-game prompts name the Frame's buttons (A, B, X, Y, D-pad Up and so on, Menu, View), in English. Other languages keep upstream's names for now. In immersive first person Y gives way to the chest pouch, as upstream.
 
 Other controllers keep upstream's layout: see [VR CONTROLLER BINDINGS.txt](release/VR%20CONTROLLER%20BINDINGS.txt).
 

@@ -212,6 +212,7 @@ namespace trlvr
             { L"controls", L"left_handed", L"0" },
             { L"controls", L"two_handed_guns", L"1" },
             { L"controls", L"pistol_mode", L"akimbo" },
+            { L"controls", L"frame_quick_draw", L"1" },
             { L"controls", L"aim_mode", L"hand" },
             { L"controls", L"turn_mode", L"smooth" },
             { L"controls", L"snap_turn_degrees", L"30" },
@@ -675,6 +676,9 @@ namespace trlvr
             L"; its own pistol, fired by that hand's trigger (one pistol fires at\r\n"
             L"; half the rate; draw both for akimbo).\r\n"
             L"pistol_mode = akimbo\r\n"
+            L"; Steam Frame, first person: 1 = with the guns holstered, the fire\r\n"
+            L"; trigger or X draws the pistols at once (a hip grip holsters them).\r\n"
+            L"frame_quick_draw = 1\r\n"
             L"; hand = aim with the main hand; hands = with two pistols drawn, aim\r\n"
             L"; between both hands; hands_head = the hand(s) averaged with where\r\n"
             L"; the headset looks (one gun: half hand, half headset).\r\n"
@@ -1401,6 +1405,8 @@ namespace trlvr
             read_bool(L"controls", L"left_handed", false, path);
         g_config.two_handed_guns =
             read_bool(L"controls", L"two_handed_guns", true, path);
+        g_config.frame_quick_draw =
+            read_bool(L"controls", L"frame_quick_draw", true, path);
         {
             wchar_t mode[32] = {};
             GetPrivateProfileStringW(L"controls", L"pistol_mode", L"akimbo",

@@ -2261,33 +2261,245 @@ namespace trlvr
                 "opened view");
         }
 
-        // First-person immersive, d-pad down: weapon switch through the
-        // holster state. Drawn: the swap a hip or shoulder grip makes.
-        // Holstered: the other weapon is selected, and the hip or shoulder
-        // still draws its own.
-        void frame_first_person_weapon_switch()
+        // First-person immersive, d-pad down: the game's own weapon select
+        // (End), as in third person, with the hands kept in step. Retail
+        // End (the gear cross's down) steps to the next weapon Lara carries
+        // (the inventory cycle 0x005B13C0 writes the requested slot,
+        // PlayerData+0x3E5, which playerInvProcess then swaps to, with its
+        // animation when the guns are out) and always shows the weapon HUD
+        // (UIFadeGroupTrigger 3 and 1). With only the pistols there is
+        // nothing to step to: the game just shows its weapon selector. A
+        // non-weapon entry would go to the item slot, +0x3E2. The press is
+        // watched for 1.5 s and the holster state follows what the game did.
+        struct FrameWeaponState
         {
-            const bool drawn = g_holster_drawn[0] || g_holster_drawn[1];
-            const int target = weapon_slot_kind(selected_weapon_slot()) ==
-                WeaponLong ? WeaponPistols : WeaponLong;
-            const char* name = target == WeaponLong ? "long gun" : "pistols";
-            if (find_weapon_slot(target) < 0)
+            int selected;       // PlayerData+0x3E1
+            int requested;      // +0x3E5
+            int item;           // +0x3E2
+            bool out;           // +0x440 & 0x03000000: guns out (retail)
+        };
+        FrameWeaponState g_frame_weapon_was{};
+        ULONGLONG g_frame_weapon_watch_until = 0;
+        bool g_frame_weapon_acted = false;
+
+        bool frame_weapon_state(FrameWeaponState* state)
+        {
+            __try
             {
-                log("controls: [Frame] d-pad down: Lara has no %s", name);
+                const unsigned char* pd = *reinterpret_cast<unsigned char**>(
+                    kPlayerDataPointer);
+                if (!pd)
+                    return false;
+                state->selected = static_cast<signed char>(pd[0x3E1]);
+                state->requested = static_cast<signed char>(pd[0x3E5]);
+                state->item = static_cast<signed char>(pd[0x3E2]);
+                state->out = (*reinterpret_cast<const unsigned*>(pd + 0x440) &
+                              0x03000000u) != 0;
+                return true;
+            }
+            __except(EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
+        const char* frame_weapon_name(int kind)
+        {
+            return kind == WeaponLong ? "long gun"
+                 : kind == WeaponPistols ? "pistols" : "weapon";
+        }
+
+        // The hands holding `kind`: the long gun takes both, the pistols
+        // both (akimbo) or the main hand's (single), as a hip would.
+        void frame_hold_weapon(int kind)
+        {
+            const int main_hand = config().left_handed ? 0 : 1;
+            if (kind == WeaponPistols && config().single_pistols)
+            {
+                g_holster_drawn[main_hand] = true;
+                g_holster_drawn[1 - main_hand] = false;
+            }
+            else
+                g_holster_drawn[0] = g_holster_drawn[1] = true;
+        }
+
+        void frame_first_person_weapon_select(ULONGLONG now)
+        {
+            FrameWeaponState state{};
+            if (!frame_weapon_state(&state))
+            {
+                log("controls: [Frame] d-pad down: weapon select (End); "
+                    "Lara's weapon slots are not readable");
                 return;
             }
-            select_weapon_kind(target, drawn);
-            if (drawn && target == WeaponLong)
-                g_holster_drawn[0] = g_holster_drawn[1] = true;
-            else if (drawn && config().single_pistols)
+            g_frame_weapon_was = state;
+            g_frame_weapon_watch_until = now + 1500;
+            g_frame_weapon_acted = false;
+            log("controls: [Frame] d-pad down: weapon select (End) with the "
+                "guns %s, the %s selected", g_holster_drawn[0] ||
+                g_holster_drawn[1] ? "drawn" : "holstered",
+                frame_weapon_name(weapon_slot_kind(state.selected)));
+        }
+
+        // Each frame while a first-person End is being watched.
+        void frame_weapon_select_follow(ULONGLONG now)
+        {
+            if (!g_frame_weapon_watch_until)
+                return;
+            if (!camera_first_person_active())
             {
-                // Only the main hand's pistol, as one hip would.
-                const int hand = config().left_handed ? 0 : 1;
+                g_frame_weapon_watch_until = 0;
+                return;
+            }
+            FrameWeaponState state{};
+            if (!frame_weapon_state(&state))
+                return;
+            FrameWeaponState& was = g_frame_weapon_was;
+            const bool drawn = g_holster_drawn[0] || g_holster_drawn[1];
+            const int target = weapon_slot_kind(state.requested);
+            if (state.requested != was.requested && target != WeaponNone)
+            {
+                g_frame_weapon_acted = true;
+                if (drawn)
+                {
+                    frame_hold_weapon(target);
+                    log("controls: [Frame] weapon select: the game swaps to "
+                        "the %s; the hands follow", frame_weapon_name(target));
+                }
+                else if (!state.out)
+                {
+                    // Holstered, retail keeps the request for the next draw;
+                    // made the selection now, so the hips still bring out
+                    // the pistols and the shoulder the long gun.
+                    if (state.requested != state.selected)
+                        select_weapon_kind(target, false);
+                    log("controls: [Frame] weapon select: the %s selected, "
+                        "holstered (the shoulder draws the long gun, the hips "
+                        "the pistols)", frame_weapon_name(target));
+                }
+            }
+            if (!drawn && state.out && !was.out)
+            {
+                // The game drew it itself: the holsters take it over, as if
+                // drawn there, so a grip still puts it away.
+                const int kind = weapon_slot_kind(
+                    state.requested >= 0 ? state.requested : state.selected);
+                frame_hold_weapon(kind == WeaponLong ? WeaponLong
+                                                     : WeaponPistols);
+                g_pistol_draw_hand = config().left_handed ? 0 : 1;
+                g_pistol_drawn_at = now;
+                g_frame_weapon_acted = true;
+                log("controls: [Frame] weapon select: the game drew the %s; "
+                    "the holster state follows", frame_weapon_name(kind));
+            }
+            if (state.item != was.item)
+            {
+                g_frame_weapon_acted = true;
+                log("controls: [Frame] weapon select: item slot %d -> %d",
+                    was.item, state.item);
+            }
+            was = state;
+            if (now >= g_frame_weapon_watch_until)
+            {
+                g_frame_weapon_watch_until = 0;
+                if (!g_frame_weapon_acted)
+                    log("controls: [Frame] weapon select: no other weapon "
+                        "to switch to; the game showed its weapon selector");
+            }
+        }
+
+        // First-person immersive quick draw (Frame, [controls]
+        // frame_quick_draw): with the guns holstered and both hands free,
+        // the fire trigger or X draws the pistols at once, through the same
+        // holster state as a hip grip (so a hip grip still holsters them).
+        // The trigger pull that drew does not also fire: the next one does.
+        // X with a gun out is the precision aim toggle (Z), as in third
+        // person and as the action trigger does with a gun out.
+        ULONGLONG g_frame_z_until = 0;
+
+        void frame_first_person_draw(bool active, bool fire_trigger,
+                                     int fire_hand)
+        {
+            static bool trigger_was = false;
+            static bool x_was = false;
+            if (!xr_input_frame())
+                return;
+            const bool x = digital(g_game[GameAim].handle);
+            const bool trigger_pressed = fire_trigger && !trigger_was &&
+                !g_tuning_trigger_hold[fire_hand];
+            const bool x_pressed = x && !x_was;
+            trigger_was = fire_trigger;
+            x_was = x;
+            if (!active || (!trigger_pressed && !x_pressed) ||
+                binocular_view_now() || g_frame_binocular_open_at ||
+                vr_submit_imgui_pointing())
+                return;
+            const ULONGLONG now = GetTickCount64();
+            if (g_holster_drawn[0] || g_holster_drawn[1])
+            {
+                if (x_pressed)
+                {
+                    g_frame_z_until = now + kPulseMs;
+                    log("controls: [Frame] X: precision aim toggle");
+                }
+                return;
+            }
+            if (!config().frame_quick_draw)
+                return;
+            const char* input = trigger_pressed ? "trigger" : "X";
+            if (g_binocular_hand >= 0 || g_grapple_hand >= 0 ||
+                g_grenade_hand >= 0 || g_medipack_hand >= 0)
+            {
+                log("controls: [Frame] quick draw (%s): a hand holds gear",
+                    input);
+                return;
+            }
+            if (find_weapon_slot(WeaponPistols) < 0)
+            {
+                log("controls: [Frame] quick draw (%s): Lara has no pistols",
+                    input);
+                return;
+            }
+            bool allowed = false;
+            __try
+            {
+                allowed = reinterpret_cast<PFN_CombatAllowed>(
+                    kPlayerCombatAllowed)();
+            }
+            __except(EXCEPTION_EXECUTE_HANDLER)
+            {
+                allowed = false;
+            }
+            if (!allowed)
+            {
+                static unsigned denied = 0;
+                if (denied++ < 12)
+                    log("controls: [Frame] quick draw (%s): combat not "
+                        "allowed here", input);
+                return;
+            }
+            // The hips' draw: the pistols selected first, then combat.
+            const int hand = trigger_pressed ? fire_hand
+                                             : (config().left_handed ? 0 : 1);
+            select_weapon_kind(WeaponPistols, false);
+            if (config().single_pistols)
+            {
                 g_holster_drawn[hand] = true;
                 g_holster_drawn[1 - hand] = false;
             }
-            log("controls: [Frame] d-pad down: %s %s", drawn
-                ? "swapped to the" : "selected the (holstered)", name);
+            else
+                g_holster_drawn[0] = g_holster_drawn[1] = true;
+            g_pistol_draw_hand = hand;
+            g_pistol_drawn_at = now;
+            reinterpret_cast<PFN_PlayerCombat>(
+                kPlayerInvEnterIndicatorMode)();
+            if (trigger_pressed)
+                g_tuning_trigger_hold[fire_hand] = true;
+            vr_input_weapon_haptic(hand == 0, 0.4f);
+            log("controls: [Frame] quick draw (%s): drew %s; a hip grip "
+                "holsters", input, config().single_pistols
+                ? (hand == 0 ? "the left pistol" : "the right pistol")
+                : "both pistols");
         }
 
         // The d-pad as the game's own gear cross, one to one, the order of
@@ -2297,7 +2509,8 @@ namespace trlvr
         // pick does, so the third-person immersive rule that leaves those
         // keys to the 3D cross does not apply to it, and flashes the retail
         // cross. First-person immersive keeps the hands in step: binoculars
-        // and weapon switch go through the belt and holster state above.
+        // go through the belt state above, and the weapon select's result is
+        // followed by the holster state (frame_weapon_select_follow).
         // Binocular view: right closes it, up (medipack, which the view lets
         // through) works, down and left wait until it is closed.
         void frame_dpad_update(bool* want, bool menu, bool first_person)
@@ -2370,17 +2583,21 @@ namespace trlvr
                 vr_input_handhold_haptic(true);
                 if (first_person && i == 1)
                     frame_first_person_binoculars(now);
-                else if (first_person && i == 2)
-                    frame_first_person_weapon_switch();
                 else
                 {
                     key = kGearKeys[i];
                     key_until = now + kPulseMs;
-                    log("controls: [Frame] d-pad: %s", kGearNames[i]);
+                    if (first_person && i == 2)
+                        frame_first_person_weapon_select(now);
+                    else
+                        log("controls: [Frame] d-pad: %s", kGearNames[i]);
                 }
             }
             if (key && now < key_until)
                 want[key] = true;
+            frame_weapon_select_follow(now);
+            if (now < g_frame_z_until)
+                want['Z'] = true;
         }
 
         // The physical inputs of this frame as the game's actions. This is
@@ -4187,6 +4404,9 @@ namespace trlvr
         const int grapple_state = update_grapple_pull(
             immersive_first_person && !menu && !handhold_active,
             left_trigger, right_trigger, &grapple_pull_pulse);
+        frame_first_person_draw(immersive_first_person && !menu &&
+            !handhold_active && grapple_state == 0,
+            swap_triggers ? left_trigger : right_trigger, swap_triggers ? 0 : 1);
         // Resolve the visible belt items and pistol holsters first. Their
         // pickup consumes this grip edge; only an unclaimed upper-chest grip
         // may toggle the personal light.
