@@ -1263,4 +1263,8 @@ namespace trlvr
     {
         return hand < 0 || hand > 1 ? "" : g_profile[hand];
     }
+
+    // OpenXR sees the Steam Frame through SteamVR's Touch emulation.
+    bool oxr_input_frame() { return false; }
+    bool oxr_input_frame_button(XrFrameButton) { return false; }
 }

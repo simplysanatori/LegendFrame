@@ -14,6 +14,7 @@ namespace trlvr
         VrControllerTouch,       // HP Reverb G2 and Oculus Touch
         VrControllerIndex,
         VrControllerWmr,
+        VrControllerFrame,       // Steam Frame (OpenVR), Touch otherwise
     };
 
     // Once a frame, from Present. Connects on first use; does nothing at all

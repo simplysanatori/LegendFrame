@@ -1,6 +1,6 @@
 {
   "controller_type": "frame_controller",
-  "description": "Tomb Raider: Legend VR -- Steam Frame controllers (native layout)",
+  "description": "Tomb Raider: Legend VR -- Steam Frame controllers (Frame layout: X aim, Y grenade, d-pad gear cross, Menu pause, View PDA)",
   "name": "Tomb Raider: Legend VR",
   "bindings": {
     "/actions/trlvr": {
@@ -53,23 +53,11 @@
           }
         },
         {
-          "path": "/user/hand/left/input/dpad_down",
+          "path": "/user/hand/left/input/dpad_up",
           "mode": "button",
           "inputs": {
             "click": {
-              "output": "/actions/trlvr/in/primary_left"
-            },
-            "touch": {
-              "output": "/actions/trlvr/in/thumb_touch_left"
-            }
-          }
-        },
-        {
-          "path": "/user/hand/left/input/dpad_left",
-          "mode": "button",
-          "inputs": {
-            "click": {
-              "output": "/actions/trlvr/in/secondary_left"
+              "output": "/actions/trlvr/in/dpad_up"
             },
             "touch": {
               "output": "/actions/trlvr/in/thumb_touch_left"
@@ -81,7 +69,7 @@
           "mode": "button",
           "inputs": {
             "click": {
-              "output": "/actions/trlvr/in/secondary_left"
+              "output": "/actions/trlvr/in/dpad_right"
             },
             "touch": {
               "output": "/actions/trlvr/in/thumb_touch_left"
@@ -89,11 +77,23 @@
           }
         },
         {
-          "path": "/user/hand/left/input/dpad_up",
+          "path": "/user/hand/left/input/dpad_down",
           "mode": "button",
           "inputs": {
             "click": {
-              "output": "/actions/trlvr/in/secondary_left"
+              "output": "/actions/trlvr/in/dpad_down"
+            },
+            "touch": {
+              "output": "/actions/trlvr/in/thumb_touch_left"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/dpad_left",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/trlvr/in/dpad_left"
             },
             "touch": {
               "output": "/actions/trlvr/in/thumb_touch_left"
@@ -105,7 +105,16 @@
           "mode": "button",
           "inputs": {
             "click": {
-              "output": "/actions/trlvr/in/menu_left"
+              "output": "/actions/trlvr/in/view"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/bumper",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/trlvr/in/bumper_left"
             }
           }
         },
@@ -185,7 +194,7 @@
           "mode": "button",
           "inputs": {
             "click": {
-              "output": "/actions/trlvr/in/secondary_right"
+              "output": "/actions/trlvr/in/primary_left"
             },
             "touch": {
               "output": "/actions/trlvr/in/thumb_touch_right"
@@ -197,10 +206,19 @@
           "mode": "button",
           "inputs": {
             "click": {
-              "output": "/actions/trlvr/in/secondary_right"
+              "output": "/actions/trlvr/in/secondary_left"
             },
             "touch": {
               "output": "/actions/trlvr/in/thumb_touch_right"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/menu",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/trlvr/in/menu_left"
             }
           }
         }

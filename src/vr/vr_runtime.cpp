@@ -172,6 +172,8 @@ namespace trlvr
     XrControllerKind xr_input_controller(int hand)
     { VR_FORWARD(input_controller(hand), XrControllerNone) }
     const char* xr_input_profile(int hand) { VR_FORWARD(input_profile(hand), "") }
+    bool xr_input_frame() { VR_FORWARD(input_frame(), false) }
+    bool xr_input_frame_button(XrFrameButton b) { VR_FORWARD(input_frame_button(b), false) }
 
 #undef VR_FORWARD
 }
