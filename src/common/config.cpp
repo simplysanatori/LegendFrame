@@ -201,10 +201,12 @@ namespace trlvr
             { L"vr", L"hud_ammo_hide", L"0" },
             { L"vr", L"hud_debug", L"0" },
             { L"vr", L"overlay_vr_distance", L"1.0" },
-            { L"vr", L"overlay_vr_width_degrees", L"38" },
+            { L"vr", L"overlay_vr_width_degrees", L"50" },
             { L"vr", L"overlay_vr_yaw_degrees", L"15" },
             { L"vr", L"overlay_vr_pitch_degrees", L"-10" },
             { L"vr", L"overlay_vr_open_hold", L"0.6" },
+            { L"vr", L"overlay_vr_resolution", L"1536" },
+            { L"vr", L"overlay_vr_text_scale", L"1.25" },
             { L"vr", L"cull_fov_degrees", L"120" },
 
             { L"controls", L"controllers", L"1" },
@@ -624,12 +626,18 @@ namespace trlvr
             L"; (10 to 120), yaw degrees to the left (-90 to 90, negative = right),\r\n"
             L"; pitch degrees up (-60 to 60, negative = down).\r\n"
             L"overlay_vr_distance = 1.0\r\n"
-            L"overlay_vr_width_degrees = 38\r\n"
+            L"overlay_vr_width_degrees = 50\r\n"
             L"overlay_vr_yaw_degrees = 15\r\n"
             L"overlay_vr_pitch_degrees = -10\r\n"
             L"; Hold the controller menu (pause) button this many seconds to open\r\n"
             L"; it; a quicker press still pauses the game. 0 = off (0 to 3).\r\n"
             L"overlay_vr_open_hold = 0.6\r\n"
+            L"; The panel's sharpness: its texture size in pixels, square (512 to\r\n"
+            L"; 4096). Text size: 1 = the 1.1.0 layout, larger = bigger text and\r\n"
+            L"; controls with less on screen at once (0.5 to 2.5). Both take effect\r\n"
+            L"; the next time the panel opens.\r\n"
+            L"overlay_vr_resolution = 1536\r\n"
+            L"overlay_vr_text_scale = 1.25\r\n"
             L"\r\n"
             L"; Object visibility only. Room culling is conservatively bypassed for VR.\r\n"
             L"cull_fov_degrees = 120\r\n"
@@ -1349,8 +1357,8 @@ namespace trlvr
                 read_float(L"vr", L"overlay_vr_distance", L"1.0", path),
                 0.3f, 5.0f, 1.0f);
             g_config.overlay_vr_width_degrees = clamped(
-                read_float(L"vr", L"overlay_vr_width_degrees", L"38", path),
-                10.0f, 120.0f, 38.0f);
+                read_float(L"vr", L"overlay_vr_width_degrees", L"50", path),
+                10.0f, 120.0f, 50.0f);
             g_config.overlay_vr_yaw_degrees = clamped(
                 read_float(L"vr", L"overlay_vr_yaw_degrees", L"15", path),
                 -90.0f, 90.0f, 15.0f);
@@ -1360,6 +1368,12 @@ namespace trlvr
             g_config.overlay_vr_open_hold = clamped(
                 read_float(L"vr", L"overlay_vr_open_hold", L"0.6", path),
                 0.0f, 3.0f, 0.6f);
+            g_config.overlay_vr_resolution = (unsigned)clamped(
+                read_float(L"vr", L"overlay_vr_resolution", L"1536", path),
+                512.0f, 4096.0f, 1536.0f);
+            g_config.overlay_vr_text_scale = clamped(
+                read_float(L"vr", L"overlay_vr_text_scale", L"1.25", path),
+                0.5f, 2.5f, 1.25f);
         }
         value = read_float(L"vr", L"cull_fov_degrees", L"120", path);
         g_config.cull_fov_degrees =

@@ -11,8 +11,10 @@
 #include "imgui_impl_dx9.h"
 #include "imgui_impl_win32.h"
 
+#include <cmath>
 #include <cstdio>
 #include <windows.h>
+#include <windowsx.h>   // GET_X_LPARAM
 #include <xinput.h>     // the XINPUT_GAMEPAD_* bits only; nothing linked
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg,
@@ -36,12 +38,30 @@ namespace trlvr
 
         // --- the panel in the headset (overlay_vr_texture) ----------------
         //
-        // While VR is up the window is laid out in a square of this many
-        // pixels (io.DisplaySize), filling it, and rendered into a texture
-        // of that size, which vr_submit.cpp puts into both eyes as a panel
-        // in the room. The same draw data then goes to the desktop mirror
-        // at window pixels, so the mouse still lines up with it.
-        const unsigned kPanelSize = 768;
+        // While VR is up the window is laid out in a square of
+        // g_panel_size pixels (io.DisplaySize, [vr] overlay_vr_resolution),
+        // filling it, and rendered into a texture of that size (with mips),
+        // which vr_submit.cpp puts into both eyes as a panel in the room.
+        // Everything in it -- the font, spacing, hit targets -- is drawn
+        // g_panel_scale times its desktop size, so the layout is as if
+        // kPanelLayout / overlay_vr_text_scale pixels square: 1.1.0 laid it
+        // out in 768 pixels at the desktop size, and its text was too small
+        // to read in the headset. The same draw data then goes to the
+        // desktop mirror shrunk by g_panel_scale, and the desktop mouse is
+        // grown by it (take_input), so the two still line up.
+        const float kPanelLayout = 768.0f;
+        const float kFontSize = 18.0f;      // the desktop font, in pixels
+        unsigned g_panel_size = 0;          // 0: not set up yet
+        float g_panel_scale = 1.0f;
+        float g_panel_text = 0.0f;          // overlay_vr_text_scale it is for
+        char g_font_path[MAX_PATH * 3] = {};
+        ImFont* g_font_desktop = nullptr;
+        ImFont* g_font_panel = nullptr;
+        ImGuiStyle g_style_base;            // the desktop sizes, unscaled
+        // The frame last built was laid out for the panel (the mirror and
+        // the desktop mouse are scaled by g_panel_scale).
+        bool g_frame_panel = false;
+        bool g_panel_mips = false;
         IDirect3DTexture9* g_panel = nullptr;
         IDirect3DSurface9* g_panel_surface = nullptr;
         bool g_panel_failed = false;
@@ -139,7 +159,14 @@ namespace trlvr
             // not mixed in meanwhile.
             if (is_mouse(msg) && GetTickCount64() - g_pointer_at < 250)
                 return true;
-            ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp);
+            // Laid out for the headset: the mirror is the panel shrunk to
+            // desktop size, so the mouse is grown to the panel's pixels.
+            if (msg == WM_MOUSEMOVE && g_frame_panel && g_panel_scale != 1.0f)
+                ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, MAKELPARAM(
+                    (int)lroundf(GET_X_LPARAM(lp) * g_panel_scale),
+                    (int)lroundf(GET_Y_LPARAM(lp) * g_panel_scale)));
+            else
+                ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp);
             // Key releases go on to the game as well: a key held when the
             // overlay opened (the controllers' keys, which vr_input lets go
             // of as it opens, or a real one) would otherwise stay down in
@@ -179,6 +206,8 @@ namespace trlvr
             return call_game(hwnd, msg, wp, lp);
         }
 
+        void panel_setup();
+
         bool init(IDirect3DSwapChain9* chain)
         {
             if (g_ready)
@@ -214,18 +243,20 @@ namespace trlvr
             // Something more legible than the built-in bitmap font, if
             // Windows has it where it always has.
             wchar_t windir[MAX_PATH]{};
-            char font[MAX_PATH * 3]{};
+            g_font_path[0] = 0;
             if (GetWindowsDirectoryW(windir, MAX_PATH))
             {
                 wchar_t wide[MAX_PATH]{};
                 swprintf_s(wide, L"%s\\Fonts\\segoeui.ttf", windir);
                 if (GetFileAttributesW(wide) != INVALID_FILE_ATTRIBUTES)
-                    WideCharToMultiByte(CP_UTF8, 0, wide, -1, font,
-                                        (int)sizeof(font), nullptr, nullptr);
+                    WideCharToMultiByte(CP_UTF8, 0, wide, -1, g_font_path,
+                                        (int)sizeof(g_font_path), nullptr,
+                                        nullptr);
             }
-            if (!font[0] || !io.Fonts->AddFontFromFileTTF(font, 18.0f))
-                io.Fonts->AddFontDefault();
+            g_panel_size = 0;
+            panel_setup();      // both fonts, before the backend's first frame
             ImGui::StyleColorsDark();
+            g_style_base = ImGui::GetStyle();
 
             if (!ImGui_ImplWin32_Init(hwnd) || !ImGui_ImplDX9_Init(device))
             {
@@ -286,21 +317,87 @@ namespace trlvr
             g_panel = nullptr;
         }
 
+        // The panel's size and scale from [vr] overlay_vr_resolution and
+        // overlay_vr_text_scale, and the fonts for both: the desktop one,
+        // and the panel's, rasterised at its full size so it is sharp rather
+        // than a stretched small one. At start, and again when the panel
+        // opens after either setting changed (between frames: the atlas is
+        // rebuilt, and the backend makes its texture again on its next
+        // frame).
+        void panel_setup()
+        {
+            const Config& c = config();
+            const unsigned size = c.overlay_vr_resolution;
+            const float text = c.overlay_vr_text_scale;
+            if (size == g_panel_size && text == g_panel_text &&
+                g_font_desktop && g_font_panel)
+                return;
+            ImGuiIO& io = ImGui::GetIO();
+            if (io.Fonts->Locked)
+                return;         // inside a frame: the next open does it
+            const bool rebuild = g_panel_size != 0;
+            if (size != g_panel_size)
+            {
+                release_panel();
+                g_panel_failed = false;
+                g_panel_logged = false;
+            }
+            g_panel_size = size;
+            g_panel_text = text;
+            g_panel_scale = (float)size * text / kPanelLayout;
+            if (g_panel_scale < 0.5f)
+                g_panel_scale = 0.5f;
+
+            if (rebuild)
+                ImGui_ImplDX9_InvalidateDeviceObjects();
+            io.Fonts->Clear();
+            const float panel_px = floorf(kFontSize * g_panel_scale + 0.5f);
+            g_font_desktop = g_font_path[0]
+                ? io.Fonts->AddFontFromFileTTF(g_font_path, kFontSize)
+                : nullptr;
+            g_font_panel = g_font_path[0]
+                ? io.Fonts->AddFontFromFileTTF(g_font_path, panel_px)
+                : nullptr;
+            if (!g_font_desktop || !g_font_panel)
+            {
+                io.Fonts->Clear();
+                g_font_desktop = io.Fonts->AddFontDefault();
+                ImFontConfig big;
+                big.SizePixels = floorf(13.0f * g_panel_scale + 0.5f);
+                g_font_panel = io.Fonts->AddFontDefault(&big);
+            }
+            io.FontDefault = g_font_desktop;
+            log("overlay: headset panel %ux%u pixels, drawn at %.2fx (a %.0f "
+                "pixel font)", size, size, (double)g_panel_scale,
+                (double)panel_px);
+        }
+
         bool ensure_panel()
         {
             if (g_panel_surface)
                 return true;
             if (g_panel_failed || !g_device)
                 return false;
-            const HRESULT hr = g_device->CreateTexture(kPanelSize, kPanelSize,
-                1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT,
-                &g_panel, nullptr);
+            // With mips, made from it each frame (GenerateMipSubLevels): it
+            // is drawn into the eye at well under its own size, and without
+            // them its text breaks up and shimmers.
+            HRESULT hr = g_device->CreateTexture(g_panel_size, g_panel_size,
+                0, D3DUSAGE_RENDERTARGET | D3DUSAGE_AUTOGENMIPMAP,
+                D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &g_panel, nullptr);
+            g_panel_mips = SUCCEEDED(hr) && hr != D3DOK_NOAUTOGEN && g_panel;
+            if (FAILED(hr) || !g_panel)
+            {
+                g_panel = nullptr;
+                hr = g_device->CreateTexture(g_panel_size, g_panel_size, 1,
+                    D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT,
+                    &g_panel, nullptr);
+            }
             if (FAILED(hr) || !g_panel ||
                 FAILED(g_panel->GetSurfaceLevel(0, &g_panel_surface)))
             {
                 log("overlay: could not create the %ux%u VR panel target "
                     "(0x%08lX); the settings overlay stays on the desktop "
-                    "only", kPanelSize, kPanelSize, (unsigned long)hr);
+                    "only", g_panel_size, g_panel_size, (unsigned long)hr);
                 g_panel_failed = true;
                 release_panel();
                 return false;
@@ -321,6 +418,7 @@ namespace trlvr
             if (g_open)
             {
                 g_just_opened = true;
+                panel_setup();              // its size or text size changed?
                 ++g_open_count;             // the panel goes in front again
                 g_held_at_open = 0xFFFF;    // everything held until let go
                 g_prev_buttons = 0;
@@ -431,8 +529,15 @@ namespace trlvr
 
         void help(const char* text)
         {
-            if (text && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-                ImGui::SetTooltip("%s", text);
+            // Wrapped: one long line ran off the panel's edge.
+            if (text && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort) &&
+                ImGui::BeginTooltip())
+            {
+                ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
+                ImGui::TextUnformatted(text);
+                ImGui::PopTextWrapPos();
+                ImGui::EndTooltip();
+            }
         }
 
         // Saved when the drag ends, not on every frame of it.
@@ -956,6 +1061,11 @@ namespace trlvr
             slider("Panel width", &c.overlay_vr_width_degrees, 10.0f, 120.0f,
                    "%.0f deg", L"vr", L"overlay_vr_width_degrees",
                    "How wide this window looks in the headset, in degrees.");
+            slider("Panel text size", &c.overlay_vr_text_scale, 0.5f, 2.5f,
+                   "%.2fx", L"vr", L"overlay_vr_text_scale",
+                   "How big the text and controls are in the headset; larger "
+                   "fits less at once. Takes effect when this window next "
+                   "opens.");
             slider("Panel to the left", &c.overlay_vr_yaw_degrees, -90.0f,
                    90.0f, "%.0f deg", L"vr", L"overlay_vr_yaw_degrees",
                    "How far to the left of straight ahead this window floats, "
@@ -1249,15 +1359,25 @@ namespace trlvr
             ImGui_ImplWin32_NewFrame();
             ImGuiIO& io = ImGui::GetIO();
             g_client_size = io.DisplaySize;     // the Win32 backend's: client pixels
+            // The panel: its pixels, everything drawn g_panel_scale times
+            // the desktop size (style and font), so hit targets grow too.
+            g_frame_panel = vr;
+            ImGuiStyle& style = ImGui::GetStyle();
+            style = g_style_base;
             if (vr)
-                io.DisplaySize = ImVec2((float)kPanelSize, (float)kPanelSize);
+            {
+                style.ScaleAllSizes(g_panel_scale);
+                io.DisplaySize = ImVec2((float)g_panel_size,
+                                        (float)g_panel_size);
+            }
+            io.FontDefault = vr ? g_font_panel : g_font_desktop;
             feed_gamepad(io);
             // After the Win32 backend's own mouse position: the last event
             // in a frame wins.
             if (vr && g_pointer_fresh)
             {
-                io.AddMousePosEvent(g_pointer_in.u * (float)kPanelSize,
-                                    g_pointer_in.v * (float)kPanelSize);
+                io.AddMousePosEvent(g_pointer_in.u * (float)g_panel_size,
+                                    g_pointer_in.v * (float)g_panel_size);
                 io.AddMouseButtonEvent(0, g_pointer_in.down);
                 g_pointer_at = GetTickCount64();
             }
@@ -1352,13 +1472,16 @@ namespace trlvr
             data->DisplaySize.y <= 0.0f)
             return nullptr;
         render_to(g_panel_surface, data, true);
+        g_panel->GenerateMipSubLevels();    // no-op without mips
         if (!g_panel_logged)
         {
             g_panel_logged = true;
-            log("overlay: shown in the headset as a %ux%u panel, %.2f m away, "
-                "%.0f deg wide", kPanelSize, kPanelSize,
+            log("overlay: shown in the headset as a %ux%u panel (%s), %.2f m "
+                "away, %.0f deg wide, text %.2fx", g_panel_size, g_panel_size,
+                g_panel_mips ? "with mips" : "no mips",
                 (double)config().overlay_vr_distance,
-                (double)config().overlay_vr_width_degrees);
+                (double)config().overlay_vr_width_degrees,
+                (double)g_panel_text);
         }
         return g_panel;
     }
@@ -1403,14 +1526,19 @@ namespace trlvr
         // shape, and is squeezed into the window when presented -- so the
         // draw data is stretched to the back buffer here, and comes out at
         // its intended size and shape on the monitor, under the mouse.
+        // Laid out for the headset, it is shrunk by the panel's scale too,
+        // to the size it would be on the desktop (take_input grows the
+        // mouse to match).
         ImDrawData* data = ImGui::GetDrawData();
         const ImVec2 client = g_client_size.x > 0.0f && g_client_size.y > 0.0f
             ? g_client_size
             : (data ? data->DisplaySize : ImVec2(0.0f, 0.0f));
         if (data && client.x > 0.0f && client.y > 0.0f)
         {
-            const ImVec2 scale((float)desc.Width / client.x,
-                               (float)desc.Height / client.y);
+            const float shrink = built && g_frame_panel && g_panel_scale > 0.0f
+                ? 1.0f / g_panel_scale : 1.0f;
+            const ImVec2 scale((float)desc.Width / client.x * shrink,
+                               (float)desc.Height / client.y * shrink);
             for (int n = 0; n < data->CmdListsCount; ++n)
             {
                 ImDrawList* list = data->CmdLists[n];
