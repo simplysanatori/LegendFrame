@@ -1279,4 +1279,125 @@ namespace trlvr
             c.hud_health_x, c.hud_health_y, c.hud_health_hide ? " hidden" : "",
             c.hud_debug ? ", hud_debug on" : "");
     }
+
+    namespace
+    {
+        // The game's hint window (HintSystem, tr7.pdb; retail addresses
+        // read off HINT_StartHint 0x0042C0B0, which calls
+        // HintSystem::ShowHint 0x00453FD0 on theHintSystem 0x00F1517C).
+        // HintSystem { int stringId; HintType hintType (0 none, 1 normal,
+        // 2 important, 3 modal, 4 query); HintResult queryResult;
+        // int lastStreamUnitID; }. ShowHint(id) sets stringId and
+        // hintType 1, runs TranslateHint (0x00453E10) on localstr_get(id)
+        // -- the text into s_translatedHint (cdc::UTF8String 0x010C2890,
+        // its bytes at +0xC), with the action tokens turned into button
+        // names through InputRemapDevice::GetButtonName -- sets the HUD's
+        // dynamic text 0x16 to those bytes (0x004F78D0 keeps the pointer)
+        // and triggers fade group 7 (UIFadeGroupTrigger 0x004EB1D0: fade
+        // in, hold, fade out, the hint sound). HintSystem::Update
+        // (0x00453D10) sets hintType back to 0 once fade group 7 (8 for a
+        // modal hint) is at alpha 0; there is no queue, a new hint simply
+        // replaces the old one. Modal and query hints set the byte at
+        // 0x010E5453 to 1 while they hold the game.
+        const uintptr_t kHintSystem = 0x00F1517C;
+        const uintptr_t kShowHint = 0x00453FD0;
+        const uintptr_t kHintStartCall = 0x0042C0E0;
+        const uintptr_t kTranslateHint = 0x00453E10;
+        const uintptr_t kSetDynamicText = 0x004F78D0;
+        const uintptr_t kFadeTrigger = 0x004EB1D0;
+        const uintptr_t kTranslatedHintBytes = 0x010C289C;
+        const uintptr_t kModalHintMode = 0x010E5453;
+        const int kHintText = 0x16;
+        const int kHintFade = 7;
+        const int kModalHintFade = 8;
+        // Our hints' string id: past the end of every string table, so
+        // localstr_get (0x004E43C0) gives its fallback for it when
+        // HintSystem::Draw asks, and no level script that checks or kills
+        // a hint by its id (HINT_CheckCurrentHint, HINT_KillSpecificHint)
+        // ever matches it.
+        const int kModHintStringId = 0x7FFF4C46;
+
+        typedef void (__cdecl* TranslateHintFn)(const char*);
+        typedef void (__cdecl* SetDynamicTextFn)(int, const char*);
+        typedef void (__cdecl* FadeTriggerFn)(int);
+
+        // ShowHint as a whole (its calls and s_translatedHint are in it)
+        // and the HINT_StartHint call with theHintSystem: this is the exe
+        // the addresses above were read from.
+        bool game_hint_code_matches()
+        {
+            static const unsigned char show_hint[] = {
+                0x8B, 0x44, 0x24, 0x04, 0x50, 0xC7, 0x41, 0x04, 0x01, 0x00,
+                0x00, 0x00, 0x89, 0x01, 0xE8, 0xDD, 0x03, 0x09, 0x00, 0x50,
+                0xE8, 0x27, 0xFE, 0xFF, 0xFF, 0xA1, 0x9C, 0x28, 0x0C, 0x01,
+                0x50, 0x6A, 0x16, 0xE8, 0xDA, 0x38, 0x0A, 0x00, 0x6A, 0x07,
+                0xE8, 0xD3, 0x71, 0x09, 0x00, 0x83, 0xC4, 0x14, 0xC2, 0x04,
+                0x00 };
+            static const unsigned char start_call[] = {
+                0xB9, 0x7C, 0x51, 0xF1, 0x00, 0xE8, 0xE6, 0x7E, 0x02, 0x00 };
+            __try
+            {
+                return memcmp(reinterpret_cast<const void*>(kShowHint),
+                              show_hint, sizeof(show_hint)) == 0 &&
+                       memcmp(reinterpret_cast<const void*>(kHintStartCall),
+                              start_call, sizeof(start_call)) == 0;
+            }
+            __except(EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
+        // -1 the game call failed, 0 busy, 1 shown.
+        int show_game_hint_guarded(const char* text)
+        {
+            __try
+            {
+                int* hint = reinterpret_cast<int*>(kHintSystem);
+                const float* alpha =
+                    reinterpret_cast<const float*>(kFadeValues);
+                if (hint[1] != 0 || alpha[kHintFade] > 0.0f ||
+                    alpha[kModalHintFade] > 0.0f ||
+                    *reinterpret_cast<const volatile unsigned char*>(
+                        kModalHintMode) == 1)
+                    return 0;
+                // ShowHint with our text in place of localstr_get(id).
+                hint[0] = kModHintStringId;
+                hint[1] = 1;
+                reinterpret_cast<TranslateHintFn>(kTranslateHint)(text);
+                reinterpret_cast<SetDynamicTextFn>(kSetDynamicText)(
+                    kHintText, *reinterpret_cast<const char* const*>(
+                        kTranslatedHintBytes));
+                reinterpret_cast<FadeTriggerFn>(kFadeTrigger)(kHintFade);
+                return 1;
+            }
+            __except(EXCEPTION_EXECUTE_HANDLER)
+            {
+                return -1;
+            }
+        }
+    }
+
+    GameHintResult hud_show_game_hint(const char* text)
+    {
+        static int code_ok = -1;
+        if (code_ok < 0)
+        {
+            code_ok = game_hint_code_matches() ? 1 : 0;
+            if (!code_ok)
+                log("hud: the game's hint code is not where this build "
+                    "expects it; mod hints fall back to the headset notice");
+        }
+        if (!code_ok || !text || !*text)
+            return kGameHintUnavailable;
+        const int r = show_game_hint_guarded(text);
+        if (r < 0)
+        {
+            log("hud: the game's hint call failed (exception); mod hints "
+                "fall back to the headset notice");
+            code_ok = 0;
+            return kGameHintUnavailable;
+        }
+        return r ? kGameHintShown : kGameHintBusy;
+    }
 }

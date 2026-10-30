@@ -10,4 +10,21 @@ namespace trlvr
     // view so the sliders show live. Installed once with the other engine
     // hooks.
     void hud_elements_init();
+
+    // A mod message in the game's own tutorial hint window: same box,
+    // font, place, fade and sound as the game's hints. `text` is UTF-8;
+    // U+1800 to U+1818 are the game's coloured action tokens, turned into
+    // the current button names like in the game's hints (U+180F, UTF-8
+    // "\xE1\xA0\x8F", is precision aim). The text is kept by the game
+    // until the next hint, so it must stay valid (a string literal).
+    // Never interrupts: while a game hint is shown (or fading out) it does
+    // nothing and returns kGameHintBusy; the caller may try again later.
+    // Call on the game thread (from Present), in a level.
+    enum GameHintResult
+    {
+        kGameHintShown,
+        kGameHintBusy,          // a game hint is up; nothing shown
+        kGameHintUnavailable,   // not this exe, or the game call failed
+    };
+    GameHintResult hud_show_game_hint(const char* text);
 }
