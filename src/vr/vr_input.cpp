@@ -44,6 +44,7 @@
 
 #include "camera_head.h"
 #include "hud_capture.h"
+#include "hud_elements.h"
 #include "ui_space.h"
 #include "tune.h"
 #include "vr_gesture.h"
@@ -2772,13 +2773,38 @@ namespace trlvr
                         "precision aim %s: Lara must be on her feet, not "
                         "mid-jump, hanging or climbing", where, controls,
                         expect_on ? "on" : "off");
+                    // Said in the game's own hint window (the box, font,
+                    // place, fade and sound of its tutorial hints; owner
+                    // 2026-10-30: the headset notice looked out of place).
+                    // U+180F is the game's precision aim token, drawn as
+                    // the coloured button name (X on the Frame). Skipped,
+                    // not queued, while a game hint is up: the game's own
+                    // hint stays and a late reason would only confuse.
                     if (xr_input_frame() && now - notice_at > 20000)
                     {
-                        notice_at = now;
-                        vr_submit_notice(trw(L"Precision Aim"),
-                            trw(L"Lara can only aim precisely on her feet. "
-                                L"Press X again once she has landed, not "
-                                L"while she jumps, hangs or climbs."));
+                        const GameHintResult shown = hud_show_game_hint(
+                            "Lara can only use precision aim on her feet. "
+                            "Press \xE1\xA0\x8F again once she has "
+                            "landed.");
+                        if (shown == kGameHintShown)
+                        {
+                            notice_at = now;
+                            log("aim: told why in the game's hint window");
+                        }
+                        else if (shown == kGameHintBusy)
+                            log("aim: not told why: the game is showing a "
+                                "hint of its own");
+                        else
+                        {
+                            notice_at = now;
+                            vr_submit_notice(trw(L"Precision Aim"),
+                                trw(L"Lara can only aim precisely on her "
+                                    L"feet. Press X again once she has "
+                                    L"landed, not while she jumps, hangs "
+                                    L"or climbs."));
+                            log("aim: told why in the headset notice (the "
+                                "game's hint window is unavailable)");
+                        }
                     }
                 }
             }
