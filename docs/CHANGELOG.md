@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Steam Frame controller layout.** The Frame controllers have a layout of their own instead of the Oculus Touch one. The d-pad is the game's gear cross (up medipack, right binoculars, down switch weapons, left personal light) in every mode, and it moves through menus. X is precision aim, Y throws grenades, the right Menu button pauses (hold it for the settings panel), the left View button opens the PDA and holding the left bumper does the board-mode finger flick. The prompts name the Frame's buttons. The left stick's radial gear menu still works. If SteamVR kept the old binding, select the supplied one again under Manage Controller Bindings.
+
 ## 1.0.0 (October 2026)
 
 Tomb Raider: Legend in VR on the Valve Steam Frame. LegendFrame is a fork of RototRobot's Tomb-Raider-Legend-VR-Port 1.1.0. All of the VR work is theirs: the stereo view, head tracking, motion controls, the third-person VR camera, first-person mode and god mode. You need your own copy of the game from Steam.

@@ -3223,8 +3223,10 @@ namespace trlvr
                 trw(L"Move each item to where it feels comfortable on your "
                     L"body and pull that hand's trigger to place it. Pull "
                     L"again to pick it back up."),
-                trw(L"The last item saves. Press the menu button (left "
-                    L"stick) to cancel."));
+                trw(vr_input_controller_style() == VrControllerFrame
+                    ? L"The last item saves. Press the Menu button to cancel."
+                    : L"The last item saves. Press the menu button (left "
+                      L"stick) to cancel."));
             if (!g_tuning_panel || wcscmp(body, g_tuning_panel_text) != 0)
             {
                 if (g_tuning_panel)

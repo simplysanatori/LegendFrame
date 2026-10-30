@@ -66,6 +66,10 @@ namespace trlvr
         vr::TrackedDevicePose_t g_device_poses[vr::k_unMaxTrackedDeviceCount]{};
 
         XrControllerKind g_controller[2] = { XrControllerNone, XrControllerNone };
+        // Steam Frame controllers (LegendFrame): the Touch kind plus the
+        // optional actions only bindings_frame_controller.json binds.
+        bool g_frame[2] = { false, false };
+        vr::VRActionHandle_t g_frame_button[XrFrameButtonCount]{};
         char g_profile[2][96] = { "", "" };
         char g_type[2][64] = { "", "" };
         ULONGLONG g_profile_checked = 0;
@@ -233,6 +237,14 @@ namespace trlvr
                 sprintf_s(name, "/actions/trlvr/out/haptic_%s", kSide[h]);
                 g_input->GetActionHandle(name, &g_haptic[h]);
             }
+            static const char* const kFrame[XrFrameButtonCount] = {
+                "dpad_up", "dpad_right", "dpad_down", "dpad_left", "view",
+                "bumper_left" };
+            for (int b = 0; b < XrFrameButtonCount; ++b)
+            {
+                sprintf_s(name, "/actions/trlvr/in/%s", kFrame[b]);
+                g_input->GetActionHandle(name, &g_frame_button[b]);
+            }
             log("openvr: controller actions from %s", path);
             return true;
         }
@@ -260,6 +272,7 @@ namespace trlvr
                 strcpy_s(g_type[h], type);
                 const char* profile = "";
                 XrControllerKind kind = XrControllerNone;
+                g_frame[h] = false;
                 if (!type[0])
                     ;
                 else if (strstr(type, "oculus_touch"))
@@ -273,6 +286,7 @@ namespace trlvr
                     // class layout, so reuse the Touch kind and profile.
                     kind = XrControllerTouch;
                     profile = "/interaction_profiles/oculus/touch_controller";
+                    g_frame[h] = true;
                     log("controls: Steam Frame controllers detected -> Touch profile");
                 }
                 else if (strstr(type, "knuckles"))
@@ -697,5 +711,14 @@ namespace trlvr
     const char* ovr_input_profile(int hand)
     {
         return hand < 0 || hand > 1 ? "" : g_profile[hand];
+    }
+
+    bool ovr_input_frame() { return g_frame[0] || g_frame[1]; }
+
+    bool ovr_input_frame_button(XrFrameButton button)
+    {
+        if (button < 0 || button >= XrFrameButtonCount || !ovr_input_frame())
+            return false;
+        return digital(g_frame_button[button]);
     }
 }

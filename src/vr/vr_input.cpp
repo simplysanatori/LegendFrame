@@ -2181,6 +2181,208 @@ namespace trlvr
             return was ? value > release : value >= press;
         }
 
+        // --- Steam Frame controllers (LegendFrame) ---------------------------
+        // Everything Frame-only in this file is here, behind xr_input_frame()
+        // (OpenVR backend, SteamVR controller type frame_controller; the kind
+        // stays Touch). Every other controller returns at the first line, so
+        // the upstream paths are untouched; each is called from one line.
+        // Layout: docs/DESIGN-frame-controls.md.
+
+        // The Frame's extra logical actions: the left View button is the PDA,
+        // and the board-mode finger flick is the left bumper held (Y, the
+        // flick's Touch button, sits on the right controller here).
+        void frame_logical_actions(bool* held)
+        {
+            if (!xr_input_frame())
+                return;
+            held[GamePda] = held[GamePda] ||
+                xr_input_frame_button(XrFrameView);
+            held[kLogicalFlick] = xr_input_frame_button(XrFrameBumperLeft);
+        }
+
+        // A thumb on a button, for the finger pose: on the Frame X and Y
+        // (and Menu) are the right thumb's, though their slots are the left
+        // hand's, and the d-pad and View are the left thumb's.
+        bool frame_thumb_button(int hand, bool touch_layout)
+        {
+            if (!xr_input_frame())
+                return touch_layout;
+            if (xr_input_button(hand, XrButtonStick))
+                return true;
+            if (hand == 0)
+            {
+                for (int b = XrFrameDpadUp; b <= XrFrameView; ++b)
+                    if (xr_input_frame_button((XrFrameButton)b))
+                        return true;
+                return false;
+            }
+            return xr_input_button(1, XrButtonPrimary) ||
+                   xr_input_button(1, XrButtonSecondary) ||
+                   xr_input_button(0, XrButtonPrimary) ||
+                   xr_input_button(0, XrButtonSecondary) ||
+                   xr_input_button(0, XrButtonMenu);
+        }
+
+        // The left d-pad for the settings panel: its own D-pad.
+        WORD frame_overlay_buttons()
+        {
+            if (!xr_input_frame())
+                return 0;
+            static const WORD kBits[4] = {
+                XINPUT_GAMEPAD_DPAD_UP, XINPUT_GAMEPAD_DPAD_RIGHT,
+                XINPUT_GAMEPAD_DPAD_DOWN, XINPUT_GAMEPAD_DPAD_LEFT };
+            WORD bits = 0;
+            for (int i = 0; i < 4; ++i)
+                if (xr_input_frame_button((XrFrameButton)(XrFrameDpadUp + i)))
+                    bits |= kBits[i];
+            return bits;
+        }
+
+        // A first-person view opened by the d-pad that the game never showed
+        // (Lara could not use the binoculars just then): when it was opened,
+        // and whether the binocular overlay has been seen since.
+        ULONGLONG g_frame_binocular_open_at = 0;
+
+        // First-person immersive, d-pad right: the binoculars through the
+        // belt's state (g_binocular_view, the key pulse), as raising them to
+        // the face does. Like the belt, not with a gun out.
+        void frame_first_person_binoculars(ULONGLONG now)
+        {
+            if (g_holster_drawn[0] || g_holster_drawn[1])
+            {
+                log("controls: [Frame] d-pad right: binoculars need the guns "
+                    "holstered (as at the belt)");
+                return;
+            }
+            g_binocular_view = true;
+            g_binocular_key_pulse = true;
+            g_frame_binocular_open_at = now;
+            log("controls: [Frame] d-pad right: binoculars to the face; "
+                "opened view");
+        }
+
+        // First-person immersive, d-pad down: weapon switch through the
+        // holster state. Drawn: the swap a hip or shoulder grip makes.
+        // Holstered: the other weapon is selected, and the hip or shoulder
+        // still draws its own.
+        void frame_first_person_weapon_switch()
+        {
+            const bool drawn = g_holster_drawn[0] || g_holster_drawn[1];
+            const int target = weapon_slot_kind(selected_weapon_slot()) ==
+                WeaponLong ? WeaponPistols : WeaponLong;
+            const char* name = target == WeaponLong ? "long gun" : "pistols";
+            if (find_weapon_slot(target) < 0)
+            {
+                log("controls: [Frame] d-pad down: Lara has no %s", name);
+                return;
+            }
+            select_weapon_kind(target, drawn);
+            if (drawn && target == WeaponLong)
+                g_holster_drawn[0] = g_holster_drawn[1] = true;
+            else if (drawn && config().single_pistols)
+            {
+                // Only the main hand's pistol, as one hip would.
+                const int hand = config().left_handed ? 0 : 1;
+                g_holster_drawn[hand] = true;
+                g_holster_drawn[1 - hand] = false;
+            }
+            log("controls: [Frame] d-pad down: %s %s", drawn
+                ? "swapped to the" : "selected the (holstered)", name);
+        }
+
+        // The d-pad as the game's own gear cross, one to one, the order of
+        // kGearKeys: up medipack, right binoculars, down weapon switch, left
+        // light; in menus the arrow keys. Called once a frame just before
+        // the keys go out. A press pulses its key for kPulseMs, as a radial
+        // pick does, so the third-person immersive rule that leaves those
+        // keys to the 3D cross does not apply to it, and flashes the retail
+        // cross. First-person immersive keeps the hands in step: binoculars
+        // and weapon switch go through the belt and holster state above.
+        // Binocular view: right closes it, up (medipack, which the view lets
+        // through) works, down and left wait until it is closed.
+        void frame_dpad_update(bool* want, bool menu, bool first_person)
+        {
+            static bool was[4] = {};
+            static ULONGLONG last_call = 0;
+            static WORD key = 0;
+            static ULONGLONG key_until = 0;
+            if (!xr_input_frame())
+                return;
+            const ULONGLONG now = GetTickCount64();
+            // Not called for a while (settings panel, a movie, focus lost):
+            // a button still held from then is not a new press.
+            const bool fresh = last_call && now - last_call < 250;
+            last_call = now;
+            bool down[4];
+            for (int i = 0; i < 4; ++i)
+                down[i] = xr_input_frame_button(
+                    (XrFrameButton)(XrFrameDpadUp + i));
+            if (menu)
+            {
+                static const WORD kArrows[4] = {
+                    VK_UP, VK_RIGHT, VK_DOWN, VK_LEFT };
+                for (int i = 0; i < 4; ++i)
+                {
+                    if (down[i])
+                        want[kArrows[i]] = true;
+                    was[i] = down[i];
+                }
+                key = 0;
+                return;
+            }
+            // The d-pad's first-person view that never showed is let go
+            // quietly (no key: that would open it now).
+            if (g_frame_binocular_open_at)
+            {
+                if (hud_binocular_view_active() || !g_binocular_view)
+                    g_frame_binocular_open_at = 0;
+                else if (now - g_frame_binocular_open_at > 1500)
+                {
+                    g_frame_binocular_open_at = 0;
+                    g_binocular_view = false;
+                    log("controls: [Frame] binocular view did not open; "
+                        "the binoculars stay on the belt");
+                }
+            }
+            for (int i = 0; i < 4; ++i)
+            {
+                const bool pressed = fresh && down[i] && !was[i];
+                was[i] = down[i];
+                if (!pressed)
+                    continue;
+                if (binocular_view_now() && i != 0)
+                {
+                    if (i != 1)
+                        log("controls: [Frame] d-pad %s waits: binocular "
+                            "view", kGearNames[i]);
+                    else if (g_binocular_view || g_binocular_hand >= 0)
+                        binoculars_put_back("d-pad right");
+                    else
+                    {
+                        // Opened by its key: closed with it, as a grip does.
+                        g_binocular_cancel_until = now + kPulseMs;
+                        log("controls: [Frame] binocular view closed by the "
+                            "d-pad");
+                    }
+                    continue;
+                }
+                camera_show_retail_gear_cross();
+                vr_input_handhold_haptic(true);
+                if (first_person && i == 1)
+                    frame_first_person_binoculars(now);
+                else if (first_person && i == 2)
+                    frame_first_person_weapon_switch();
+                else
+                {
+                    key = kGearKeys[i];
+                    key_until = now + kPulseMs;
+                    log("controls: [Frame] d-pad: %s", kGearNames[i]);
+                }
+            }
+            if (key && now < key_until)
+                want[key] = true;
+        }
+
         // The physical inputs of this frame as the game's actions. This is
         // the table the SteamVR bindings_*.json files used to hold.
         void update_logical_actions()
@@ -2359,6 +2561,7 @@ namespace trlvr
                 }
             }
             held[kLogicalFlick] = face;
+            frame_logical_actions(held);
             complex_update(g_complex_face, face, now, GameGrenade, -1,
                            GameLight);
             // The settings menu has the controllers: no click counted there
@@ -2406,7 +2609,8 @@ namespace trlvr
                 else if (kind == XrControllerWmr)
                     g_controller_style = VrControllerWmr;
                 else if (kind != XrControllerNone)
-                    g_controller_style = VrControllerTouch;
+                    g_controller_style = xr_input_frame() ? VrControllerFrame
+                                                          : VrControllerTouch;
                 log("controls: %s hand is a \"%s\" (%s)",
                     hand == 0 ? "left" : "right",
                     kind == XrControllerNone ? "?" : controller_type_name(kind),
@@ -2623,6 +2827,7 @@ namespace trlvr
                 in.thumb_button = xr_input_button(hand, XrButtonPrimary) ||
                                   xr_input_button(hand, XrButtonSecondary) ||
                                   xr_input_button(hand, XrButtonStick);
+                in.thumb_button = frame_thumb_button(hand, in.thumb_button);
                 // 0.9 is a full curl (a real fist, see pose_fingers).
                 finger_curls_step(f.eased, in, 0.0f, step);
                 for (int i = 0; i < 5; ++i)
@@ -3439,6 +3644,7 @@ namespace trlvr
                     for (const auto& m : map)
                         if (m.on)
                             pad.buttons |= m.bit;
+                    pad.buttons |= frame_overlay_buttons();
                     xr_input_stick(0, &pad.lx, &pad.ly);
                     xr_input_stick(1, &pad.rx, &pad.ry);
                     overlay_set_pad(pad);
@@ -5109,6 +5315,7 @@ namespace trlvr
             }
         }
 
+        frame_dpad_update(want, menu, immersive_first_person);
         apply(want, want_mouse_left);
     }
 

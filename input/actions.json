@@ -141,6 +141,36 @@
       "name": "/actions/trlvr/out/haptic_right",
       "type": "vibration",
       "requirement": "optional"
+    },
+    {
+      "name": "/actions/trlvr/in/dpad_up",
+      "type": "boolean",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/trlvr/in/dpad_right",
+      "type": "boolean",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/trlvr/in/dpad_down",
+      "type": "boolean",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/trlvr/in/dpad_left",
+      "type": "boolean",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/trlvr/in/view",
+      "type": "boolean",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/trlvr/in/bumper_left",
+      "type": "boolean",
+      "requirement": "optional"
     }
   ],
   "action_sets": [
@@ -178,7 +208,13 @@
       "/actions/trlvr/in/thumb_touch_right": "thumb touch right",
       "/actions/trlvr/in/hand_right": "hand right",
       "/actions/trlvr/in/hand_xr_right": "hand xr right",
-      "/actions/trlvr/out/haptic_right": "haptic right"
+      "/actions/trlvr/out/haptic_right": "haptic right",
+      "/actions/trlvr/in/dpad_up": "d-pad up",
+      "/actions/trlvr/in/dpad_right": "d-pad right",
+      "/actions/trlvr/in/dpad_down": "d-pad down",
+      "/actions/trlvr/in/dpad_left": "d-pad left",
+      "/actions/trlvr/in/view": "view button",
+      "/actions/trlvr/in/bumper_left": "bumper left"
     }
   ]
 }

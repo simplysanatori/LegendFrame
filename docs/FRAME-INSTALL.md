@@ -226,13 +226,41 @@ installer turns them off in the registry when those values are absent).
 
 ## Controls
 
-The bindings ship as `bindings_*.json`; SteamVR remaps the Oculus Touch binding onto the Frame
-controllers. The upstream layout is in
-[`release/VR CONTROLLER BINDINGS.txt`](../release/VR%20CONTROLLER%20BINDINGS.txt). On the Frame the
-**left menu button** is the controller's own menu button, with a native Frame binding: a tap opens the
-gear menu and pauses, and holding it for about half a second opens the settings panel. The left system button always opens the SteamVR dashboard and is never
-bound. If a button does nothing, open SteamVR > Settings > Controllers > Manage Controller Bindings and
-reset the choice for Tomb Raider: Legend.
+The bindings ship as `bindings_*.json` with `trlvr_actions.json`, and the installer copies all of them.
+The Frame has its own, `bindings_frame_controller.json`:
+
+| Frame control | In play | In menus |
+|---|---|---|
+| Left stick | Move. Double click recentres the view. Hold it in and push it for the radial gear menu | Move |
+| Right stick | Turn. Click switches weapons, double click opens the PDA, long press uses the binoculars (with immersive controls it switches between first and third person) | Scroll |
+| A | Jump / surface | Select |
+| B | Crouch / roll / dive | Back |
+| X | Precision aim (on / off) | |
+| Y | Grenade / flare. A long press is the personal light with immersive controls off | |
+| D-pad up | Medipack | Up |
+| D-pad right | Binoculars. Press it again to put them away | Right |
+| D-pad down | Switch weapons | Down |
+| D-pad left | Personal light | Left |
+| Menu (right) | Tap to pause. Hold it 0.6 s for the settings panel | Back |
+| View (left) | PDA | |
+| Left trigger | Action / interact / pull the grapple | |
+| Right trigger | Fire | Select |
+| Left grip | Throw the grapple | |
+| Right grip | Lock on | |
+| Left bumper | Hold it for the board-mode finger flick | |
+| Right bumper | Not bound | |
+| Steam buttons | SteamVR's (dashboard, recentre). Never bound | |
+
+The d-pad is the retail gear cross (it flashes the item wheel) in every mode; the left stick's radial
+gear menu still works. In immersive first person d-pad right and down go through the belt and holster
+state (binoculars to the face, swap the drawn gun), and in binocular view only d-pad right (put them
+away) and up (medipack) do anything. The in-game prompts name the Frame's buttons in English. Other
+controllers keep the upstream layout in
+[`release/VR CONTROLLER BINDINGS.txt`](../release/VR%20CONTROLLER%20BINDINGS.txt).
+
+SteamVR keeps the binding it chose for a game. After an update that changes the binding, or if a
+button does nothing, open SteamVR > Settings > Controllers > Manage Controller Bindings, pick
+Tomb Raider: Legend and select the supplied LegendFrame binding again.
 
 ## Logs to collect when something goes wrong
 

@@ -78,6 +78,17 @@ namespace trlvr
             { "Gear Cross", {}, false },
             { "Grip over your Shoulder", {}, false },
             { "Right Stick Double", {}, false },
+            // Steam Frame (frame_replacement).
+            { "A", {}, false },
+            { "B", {}, false },
+            { "X", {}, false },
+            { "Y", {}, false },
+            { "D-pad Up", {}, false },
+            { "D-pad Right", {}, false },
+            { "D-pad Down", {}, false },
+            { "D-pad Left", {}, false },
+            { "Menu", {}, false },
+            { "View", {}, false },
         };
 
         GameUtf8String* label(const char* text)
@@ -111,6 +122,26 @@ namespace trlvr
                    (c && same(value, c)) || (d && same(value, d));
         }
 
+        // Steam Frame (LegendFrame): the Frame's own button names. Its d-pad
+        // is the gear cross in every mode (vr_input.cpp frame_dpad_update),
+        // the right Menu button pauses and the left View button is the PDA.
+        // E, fire, Q, G and first-person precision aim keep the names below.
+        const char* frame_replacement(const char* key, bool first)
+        {
+            if (any(key, "Space", "Spacebar")) return "A";
+            if (same(key, "F"))                return "B";
+            if (!first && same(key, "Z"))      return "X";
+            if (same(key, "K"))                return "Y";
+            if (same(key, "Home"))             return "D-pad Up";
+            if (any(key, "Page Down", "PageDown", "PgDn", "Pg Dn"))
+                return "D-pad Right";
+            if (same(key, "End"))              return "D-pad Down";
+            if (any(key, "Delete", "Del"))     return "D-pad Left";
+            if (any(key, "Escape", "Esc"))     return "Menu";
+            if (same(key, "Tab"))              return "View";
+            return nullptr;
+        }
+
         // Labels follow what vr_input actually does (reviewed 2026-10-04):
         //  - left_handed swaps the triggers' roles in every mode (Action E
         //    on RT, fire on LT); the grips and buttons stay put;
@@ -138,6 +169,8 @@ namespace trlvr
                 return first ? "Belt Grapple" : "Left Grip";
             if (same(key, "G"))
                 return first ? "Auto Target" : "Right Grip";
+            if (style == VrControllerFrame && frame_replacement(key, first))
+                return frame_replacement(key, first);
             if (any(key, "Escape", "Esc"))
                 return "Left Stick";
             if (same(key, "Tab"))

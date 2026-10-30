@@ -39,6 +39,8 @@ namespace trlvr
     bool oxr_input_haptic(int hand, float seconds, float frequency, float amplitude);
     XrControllerKind oxr_input_controller(int hand);
     const char* oxr_input_profile(int hand);
+    bool oxr_input_frame();
+    bool oxr_input_frame_button(XrFrameButton button);
 
     // OpenVR
     bool ovr_instance_init();
@@ -69,6 +71,8 @@ namespace trlvr
     bool ovr_input_haptic(int hand, float seconds, float frequency, float amplitude);
     XrControllerKind ovr_input_controller(int hand);
     const char* ovr_input_profile(int hand);
+    bool ovr_input_frame();
+    bool ovr_input_frame_button(XrFrameButton button);
 
     // OpenVR has no swapchain: the frame goes to the compositor in place.
     // One Vulkan image (DXVK's description of the surface) and each eye's

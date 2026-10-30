@@ -146,4 +146,20 @@ namespace trlvr
     XrControllerKind xr_input_controller(int hand);
     // The interaction profile path for that hand, "" until one is bound.
     const char* xr_input_profile(int hand);
+
+    // Steam Frame controllers (LegendFrame): the kind stays Touch, these add
+    // the controls Touch has no slot for. Only the OpenVR backend sees a
+    // Frame as itself; elsewhere xr_input_frame() is false.
+    enum XrFrameButton
+    {
+        XrFrameDpadUp,      // left d-pad, four real buttons
+        XrFrameDpadRight,
+        XrFrameDpadDown,
+        XrFrameDpadLeft,
+        XrFrameView,        // left View button
+        XrFrameBumperLeft,  // left bumper
+        XrFrameButtonCount
+    };
+    bool xr_input_frame();
+    bool xr_input_frame_button(XrFrameButton button);
 }
