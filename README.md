@@ -156,7 +156,7 @@ On one Steam Frame at 72 Hz, 1440 pixels per eye, Proton 11 ARM64 and OpenVR, wi
 
 | | Original mod | LegendFrame |
 |---|---|---|
-| Gameplay frame rate | about 40 fps | 72 fps most of the time, dips to the mid 60s |
+| Gameplay frame rate | about 40 fps | 72 fps most of the time, dips into the 50s in the busiest areas |
 | Time per frame | about 25 ms | about 14 ms |
 
 Lowering the resolution never helped the original mod. The time was going into the doubled draws, not the GPU. The rest of each frame is mostly the game's own logic running through the emulator. Let the headset cool between long sessions: a hot Frame throttles and drops the frame rate.

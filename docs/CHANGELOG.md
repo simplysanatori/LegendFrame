@@ -70,5 +70,3 @@ In the original mod the panel was too small and soft to read on the Frame.
 - The game runs through OpenVR, not OpenXR. OpenXR isn't available to 32-bit games under Proton 11 ARM64.
 - Turn Next Generation Content off in the game's Setup dialog, or the VR view is black.
 - The busiest areas dip into the 50s.
-- If the buttons behave the old way, SteamVR kept an older binding. Re-pick it under SteamVR Settings > Controllers > Manage Controller Bindings.
-- If the game window floats over the view, press "Connect to dock" on it once, or turn off "Auto show game theater" under SteamVR Settings > Dashboard (Advanced).
