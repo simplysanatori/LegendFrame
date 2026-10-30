@@ -216,6 +216,7 @@ namespace trlvr
             { L"controls", L"two_handed_guns", L"1" },
             { L"controls", L"pistol_mode", L"akimbo" },
             { L"controls", L"frame_quick_draw", L"1" },
+            { L"controls", L"frame_holster_hold", L"0.3" },
             { L"controls", L"aim_mode", L"hand" },
             { L"controls", L"turn_mode", L"smooth" },
             { L"controls", L"snap_turn_degrees", L"30" },
@@ -686,6 +687,10 @@ namespace trlvr
             L"; Steam Frame, first person: 1 = with the guns holstered, the fire\r\n"
             L"; trigger or X draws the pistols at once (a hip grip holsters them).\r\n"
             L"frame_quick_draw = 1\r\n"
+            L"; Steam Frame, first person: hold the right bumper this long\r\n"
+            L"; (seconds; 0 = a tap) to holster what is drawn (pistols to the\r\n"
+            L"; hips, the long gun to the shoulder).\r\n"
+            L"frame_holster_hold = 0.3\r\n"
             L"; hand = aim with the main hand; hands = with two pistols drawn, aim\r\n"
             L"; between both hands; hands_head = the hand(s) averaged with where\r\n"
             L"; the headset looks (one gun: half hand, half headset).\r\n"
@@ -1418,6 +1423,9 @@ namespace trlvr
             read_bool(L"controls", L"two_handed_guns", true, path);
         g_config.frame_quick_draw =
             read_bool(L"controls", L"frame_quick_draw", true, path);
+        value = read_float(L"controls", L"frame_holster_hold", L"0.3", path);
+        g_config.frame_holster_hold = std::isfinite(value)
+            ? (value < 0.0f ? 0.0f : value > 2.0f ? 2.0f : value) : 0.3f;
         {
             wchar_t mode[32] = {};
             GetPrivateProfileStringW(L"controls", L"pistol_mode", L"akimbo",

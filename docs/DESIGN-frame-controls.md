@@ -216,7 +216,7 @@ unchanged.
    right closes it (`binoculars_put_back`, or the key for a view opened by its key, as a grip does),
    up (medipack) works because the view lets the medipack through already, down and left are ignored.
 3. Board flick on the Frame: left bumper held (`bumper_left`). Y keeps upstream's tap / long press.
-4. Right bumper unbound. X precision aim, A jump, B crouch / roll / dive.
+4. Right bumper: the button holster (item 8). X precision aim, A jump, B crouch / roll / dive.
 5. Prompts: Frame branch in `input_labels.cpp` (`frame_replacement`), holster setup cancel text.
    English only.
 6. Quick draw (second pass; `[controls] frame_quick_draw`, default 1, Frame only). In immersive
@@ -235,9 +235,24 @@ unchanged.
    toggle the action trigger also gives. The owner's "head-tracked aim" was third-person X:
    precision aim (camera mode 13) with `hmd_aim` aims along the headset; that is unchanged. First
    person aims with the hand (`controller_aim = 1`); `controller_aim = 0` aims with the headset.
+8. Button holster (third pass; `[controls] frame_holster_hold`, default 0.3 s, 0 = a tap, Frame
+   only): "the trigger draws, the bumper holsters". The Frame's inside-out tracking loses the
+   controllers at the hip and behind the shoulder, so the reaches are unreliable on this hardware.
+   In immersive first person the right bumper (`bumper_right`) held for that long puts away
+   whatever is drawn, once per press when the hold is reached (not on release), through the grips'
+   own state: `g_holster_drawn` both cleared, `g_pistol_draw_hand` / `g_pistol_drawn_at` reset,
+   `kPlayerInvEndCombatMode`, as the shoulder grip does for the long gun (two-handed or not: the
+   foregrip lets go once the gun is gone) and the hips for the pistols (single-pistol mode: every
+   drawn pistol). A light haptic on the right hand. Nothing happens with nothing drawn, in menus, in
+   binocular view, hanging / climbing, with the grapple out or in hand, or in third person (board
+   mode included); a bumper still held when input resumes (settings panel, calibration, a movie)
+   waits for a new press. Third person stays as it was: retail has no holster key (the actions
+   table sends none; the game ends combat itself). Each press logs `[Frame] holster:` with what
+   went away or why nothing did. The reaches and the quick draw are unchanged.
 
-Code: optional actions `dpad_up/right/down/left`, `view`, `bumper_left` in `input/actions.json`;
+Code: optional actions `dpad_up/right/down/left`, `view`, `bumper_left`, `bumper_right` in `input/actions.json`;
 `xr_input_frame()` / `xr_input_frame_button()` (OpenVR only, false on OpenXR); the Frame block in
 `vr_input.cpp` (`frame_logical_actions`, `frame_dpad_update`, `frame_thumb_button`,
 `frame_overlay_buttons`, `frame_first_person_draw`; `frame_weapon_select_follow` runs inside
-`frame_dpad_update`), each called from one line; `VrControllerFrame` for the labels.
+`frame_dpad_update`, `frame_bumper_holster` inside `frame_first_person_draw`), each called from one
+line; `VrControllerFrame` for the labels.

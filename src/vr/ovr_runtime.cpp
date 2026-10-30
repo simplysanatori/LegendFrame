@@ -239,7 +239,7 @@ namespace trlvr
             }
             static const char* const kFrame[XrFrameButtonCount] = {
                 "dpad_up", "dpad_right", "dpad_down", "dpad_left", "view",
-                "bumper_left" };
+                "bumper_left", "bumper_right" };
             for (int b = 0; b < XrFrameButtonCount; ++b)
             {
                 sprintf_s(name, "/actions/trlvr/in/%s", kFrame[b]);

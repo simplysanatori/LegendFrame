@@ -171,6 +171,11 @@
       "name": "/actions/trlvr/in/bumper_left",
       "type": "boolean",
       "requirement": "optional"
+    },
+    {
+      "name": "/actions/trlvr/in/bumper_right",
+      "type": "boolean",
+      "requirement": "optional"
     }
   ],
   "action_sets": [
@@ -214,7 +219,8 @@
       "/actions/trlvr/in/dpad_down": "d-pad down",
       "/actions/trlvr/in/dpad_left": "d-pad left",
       "/actions/trlvr/in/view": "view button",
-      "/actions/trlvr/in/bumper_left": "bumper left"
+      "/actions/trlvr/in/bumper_left": "bumper left",
+      "/actions/trlvr/in/bumper_right": "bumper right"
     }
   ]
 }

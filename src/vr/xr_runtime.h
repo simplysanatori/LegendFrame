@@ -158,6 +158,7 @@ namespace trlvr
         XrFrameDpadLeft,
         XrFrameView,        // left View button
         XrFrameBumperLeft,  // left bumper
+        XrFrameBumperRight, // right bumper
         XrFrameButtonCount
     };
     bool xr_input_frame();
