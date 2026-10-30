@@ -249,7 +249,7 @@ The Frame has its own, `bindings_frame_controller.json`:
 | Right stick | Turn. Click switches weapons, double click opens the PDA, long press uses the binoculars (with immersive controls it switches between first and third person) | Scroll |
 | A | Jump / surface | Select |
 | B | Crouch / roll / dive | Back |
-| X | Precision aim (on / off). In immersive first person with the guns away it draws the pistols | |
+| X | Precision aim on / off. In third person (classic, shoulder or board view) I press X while Lara is on her feet, and X again leaves it. It does nothing while she jumps, hangs or climbs. In the binocular view X puts the binoculars away first. In immersive first person with the guns away it draws the pistols | |
 | Y | Grenade / flare. A long press is the personal light with immersive controls off | |
 | D-pad up | Medipack | Up |
 | D-pad right | Binoculars. Press it again to put them away | Right |
@@ -282,7 +282,9 @@ gun to the shoulder, two-handed or not, and in single-pistol mode each drawn pis
 does nothing with nothing drawn, in menus, in binocular view, while hanging or climbing, with the
 grapple out, or in third person (the game has no holster key there; it puts the guns away itself when
 combat ends). The hip and shoulder reaches still holster too, and the quick draw works as before.
-Third-person precision aim on X aims where you look; in first
+Third-person precision aim on X aims where you look. The game takes it only with Lara on her
+feet (not mid-jump, hanging or climbing); a refused press is logged ("aim: X pressed ... did not
+turn precision aim on"). In third-person binocular view X puts the binoculars away, then aims. In first
 person the guns follow the hand, or the headset with `controller_aim = 0`. The in-game prompts name
 the Frame's buttons in English. Other
 controllers keep the upstream layout in
