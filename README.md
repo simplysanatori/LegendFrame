@@ -27,7 +27,7 @@ The original mod draws the whole scene twice, once per eye. On the Frame every d
 - **Cheaper eye maths.** Both eyes' matrices come from one calculation, and the mod is built with faster maths for the emulator.
 - **No idle wait before each frame goes to SteamVR.** The CPU no longer sits waiting for the GPU before handing over a frame.
 - **God mode fixed.** In the original mod, picking up a character after a cutscene, or once Lara was wet or dirty, left parts of her stretched back to the pick-up spot. Carries now stay clean.
-- **Steam Frame controllers.** A native binding. Tap the left menu button for the gear menu and pause. Hold it for the settings panel.
+- **Steam Frame controllers.** A layout of their own. The d-pad is the gear cross, X aims, Y throws grenades, the right Menu button pauses (hold it for the settings panel) and the left View button opens the PDA. The prompts name the Frame's buttons.
 - **HUD position.** Sliders move the HUD, and it starts nudged up and to the left.
 - **HUD layout.** The item wheel and the ammo readout each move as one piece, with a left / right and a down / up slider in the settings panel. The HUD stays in view while the panel is open, so I can watch them move. On the Frame they start a little to the right, the item wheel raised and the ammo readout lowered.
 - **Readable settings panel.** In the original mod the settings panel was too small and soft to read on the Frame. Now it's drawn at 1536 pixels with mipmaps and a font made for that size, so the text stays crisp instead of breaking up. The text and controls are about 1.7 times bigger in view, and the panel spans 50 degrees instead of 38. A text-size slider in the panel makes it bigger or smaller.
@@ -88,15 +88,41 @@ If the registry section did not exist when you installed, the installer says so:
 
 ## Controls
 
-The layout is upstream's: see [VR CONTROLLER BINDINGS.txt](release/VR%20CONTROLLER%20BINDINGS.txt). Oculus Touch is the layout that applies on the Frame: the bindings ship as `bindings_*.json`, and SteamVR remaps the Oculus Touch binding onto the Frame controllers.
+The Frame controllers have their own layout. The upstream one was made for Oculus Touch: on the Frame, X and Y did the same thing as B, three of the d-pad buttons threw grenades, the right Menu button did nothing and the prompts named buttons the Frame doesn't have. Now every button has its own job:
 
-One thing is different on the Frame. The **left menu button** is the Frame controller's own menu button, and LegendFrame binds it directly: a tap opens the gear menu and pauses, and holding it for about half a second opens the settings panel. The left system button always opens the SteamVR dashboard and is never bound.
+| Frame control | In play | In menus |
+|---|---|---|
+| Left stick | Move. Double click recentres the view. Hold it in and push it for the radial gear menu | Move |
+| Right stick | Turn. Click switches weapons, double click opens the PDA, long press uses the binoculars (with immersive controls it switches between first and third person) | Scroll |
+| A | Jump / surface | Select |
+| B | Crouch / roll / dive | Back |
+| X | Precision aim (on / off) | |
+| Y | Grenade / flare. A long press is the personal light with immersive controls off | |
+| D-pad up | Medipack | Up |
+| D-pad right | Binoculars. Press it again to put them away | Right |
+| D-pad down | Switch weapons | Down |
+| D-pad left | Personal light | Left |
+| Menu (right) | Tap to pause. Hold it 0.6 s for the settings panel | Back |
+| View (left) | PDA | |
+| Left trigger | Action / interact / pull the grapple | |
+| Right trigger | Fire | Select |
+| Left grip | Throw the grapple | |
+| Right grip | Lock on | |
+| Left bumper | Hold it for the board-mode finger flick | |
+| Right bumper | Not bound | |
+| Steam buttons | SteamVR's (dashboard, recentre). Never bound | |
 
-If a button does nothing, open SteamVR > Settings > Controllers > Manage Controller Bindings and reset the choice for Tomb Raider: Legend.
+The d-pad is the game's own gear cross, the same four items in the same places, and the item wheel flashes up when I press it. It works in every mode. In immersive first person it goes through the same hand state as the belt and holsters: d-pad right raises the binoculars, and d-pad down swaps the gun I have out (with the guns away it only picks the other one). While the binoculars are up, d-pad right puts them away, d-pad up still uses a medipack, and down and left wait. The left stick's radial gear menu still works as before.
+
+The in-game prompts name the Frame's buttons (A, B, X, Y, D-pad Up and so on, Menu, View), in English. Other languages keep upstream's names for now. In immersive first person, X and Y give way to the hip holsters and the chest pouch, as upstream.
+
+Other controllers keep upstream's layout: see [VR CONTROLLER BINDINGS.txt](release/VR%20CONTROLLER%20BINDINGS.txt).
+
+If a button does nothing, or does what it did before this layout, SteamVR is using an older binding it kept for the game. Open SteamVR > Settings > Controllers > Manage Controller Bindings, pick Tomb Raider: Legend and select the supplied LegendFrame binding again.
 
 ## Settings
 
-Edit `trlvr.ini` in the game folder with the game closed. The mod writes every key with its explanation the first time it runs. The settings panel (hold the left menu button) changes most of them live. The ones that matter on the Frame, with the values a Frame install starts with:
+Edit `trlvr.ini` in the game folder with the game closed. The mod writes every key with its explanation the first time it runs. The settings panel (hold the Menu button) changes most of them live. The ones that matter on the Frame, with the values a Frame install starts with:
 
 | Key | Default | What it does |
 |---|---|---|
@@ -150,7 +176,7 @@ The game's own files are never modified, so Steam's "Verify integrity" never nee
 - **The game starts flat, not in VR.** Launch the **Tomb Raider: Legend VR** shortcut, not the store entry. Check that `trlvr.ini` has `vr_runtime=openvr`.
 - **A floating 2D window covers the VR view.** That is the game window. Press "Connect to dock" on it.
 - **The scene is black in VR.** Turn **Next Generation Content off** in the game's Setup dialog.
-- **A controller button does nothing.** Reset the binding in SteamVR > Settings > Controllers > Manage Controller Bindings for Tomb Raider: Legend. The left system button always opens the SteamVR dashboard.
+- **A controller button does nothing, or still does what it did in an older version.** Select the supplied binding again in SteamVR > Settings > Controllers > Manage Controller Bindings for Tomb Raider: Legend. The left system button always opens the SteamVR dashboard.
 - **The installer says the registry section does not exist.** Run the game once from the store entry, then run the installer again.
 - **Single-pass is not working.** `trlvr.log` has `stereo: single-pass (viewport index) enabled, DXVK stereo interface v1` when it is up. If it says `stereo: DXVK has no single-pass interface` or `EnableSinglePassStereo failed` instead, the game runs two-pass: reinstall so `d3d9.dll` and `d3d9_dxvk.dll` come from the same release.
 - **Frames look torn or incomplete.** Set `submit_wait=1` and tell me what you saw.
