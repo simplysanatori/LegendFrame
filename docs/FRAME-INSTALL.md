@@ -235,7 +235,7 @@ The Frame has its own, `bindings_frame_controller.json`:
 | Right stick | Turn. Click switches weapons, double click opens the PDA, long press uses the binoculars (with immersive controls it switches between first and third person) | Scroll |
 | A | Jump / surface | Select |
 | B | Crouch / roll / dive | Back |
-| X | Precision aim (on / off) | |
+| X | Precision aim (on / off). In immersive first person with the guns away it draws the pistols | |
 | Y | Grenade / flare. A long press is the personal light with immersive controls off | |
 | D-pad up | Medipack | Up |
 | D-pad right | Binoculars. Press it again to put them away | Right |
@@ -244,7 +244,7 @@ The Frame has its own, `bindings_frame_controller.json`:
 | Menu (right) | Tap to pause. Hold it 0.6 s for the settings panel | Back |
 | View (left) | PDA | |
 | Left trigger | Action / interact / pull the grapple | |
-| Right trigger | Fire | Select |
+| Right trigger | Fire. In immersive first person with the guns away it draws the pistols | Select |
 | Left grip | Throw the grapple | |
 | Right grip | Lock on | |
 | Left bumper | Hold it for the board-mode finger flick | |
@@ -252,9 +252,19 @@ The Frame has its own, `bindings_frame_controller.json`:
 | Steam buttons | SteamVR's (dashboard, recentre). Never bound | |
 
 The d-pad is the retail gear cross (it flashes the item wheel) in every mode; the left stick's radial
-gear menu still works. In immersive first person d-pad right and down go through the belt and holster
-state (binoculars to the face, swap the drawn gun), and in binocular view only d-pad right (put them
-away) and up (medipack) do anything. The in-game prompts name the Frame's buttons in English. Other
+gear menu still works. D-pad down sends the game's weapon select (End) in first person too: it steps
+to the next gun Lara carries, or only shows the weapon selector when she has just the pistols, and
+the holster state follows what the game did, so the hip and shoulder grips still holster. In immersive
+first person d-pad right goes through the belt state (binoculars to the face), and in binocular view
+only d-pad right (put them away) and up (medipack) do anything.
+
+Quick draw (immersive first person, `[controls] frame_quick_draw = 1`, the default): with the guns
+holstered and both hands empty, the fire trigger or X draws the pistols at once through the hips' draw,
+so a hip grip holsters them. That trigger pull does not fire; the next one does. With a gun out X is
+precision aim, as the left trigger is. `frame_quick_draw = 0` turns it off (X and the trigger then do
+nothing with the guns away, as before). Third-person precision aim on X aims where you look; in first
+person the guns follow the hand, or the headset with `controller_aim = 0`. The in-game prompts name
+the Frame's buttons in English. Other
 controllers keep the upstream layout in
 [`release/VR CONTROLLER BINDINGS.txt`](../release/VR%20CONTROLLER%20BINDINGS.txt).
 

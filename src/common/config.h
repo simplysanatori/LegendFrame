@@ -439,6 +439,10 @@ namespace trlvr
         // single (each hip draws its own pistol; one pistol fires at half
         // the rate, both together are akimbo).
         bool single_pistols = false;
+        // Steam Frame, immersive first person: with the guns holstered the
+        // fire trigger or X draws the pistols at once (the hips' draw; a hip
+        // grip holsters them). [controls] frame_quick_draw.
+        bool frame_quick_draw = true;
         // Controller aim ray: 0 = main hand; 1 = both hands averaged when
         // two pistols are drawn; 2 = those hand(s) averaged with the HMD.
         int aim_mode = 0;
