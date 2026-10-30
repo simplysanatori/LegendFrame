@@ -1,6 +1,6 @@
-// Per-element HUD layout: the item wheel and the ammo counter, each moved
-// (or hidden) as one piece, and the gameplay HUD held in view while the
-// settings panel is open so the sliders can be set live.
+// Per-element HUD layout: the health bar, the ammo readout and the item
+// wheel, each moved (or hidden) as one piece, and the gameplay HUD held in
+// view while the settings panel is open so the sliders can be set live.
 //
 // The mod only ever sees the HUD as batched draws, one per texture page
 // (ui_space.cpp), so one draw can hold parts of several elements. The split
@@ -11,9 +11,12 @@
 //   UIItemFnTable* fnTable; }. Each item type has one static fnTable in
 //   .data, and every draw goes through fnTable->drawFn(item, UIDrawInfo&).
 //   Groups (type 1) hold child items, as do selectors (10, 11), meters and
-//   sliders. The player HUD (UIScreenID 5000, kUIScreenPlayerHUD)
-//   is one screen; its backgroundItems group (UIScreen +0xC) is the root of
-//   every element.
+//   sliders. The player HUD (UIScreenID 5000, kUIScreenPlayerHUD) is one
+//   screen, drawn by UIScreen::Draw (0x004F7320) in two parts: its
+//   backgroundItems group (UIScreen +0xC: health, breath, the weapon and
+//   gear readout, hints, pickups) and then its mainMenu (UIScreen +0x8,
+//   UIMenu::Draw 0x004F4820), the HUD inventory menu, which is the d-pad
+//   gear cross: every slot, the selector and the labels. Both are walked.
 //
 //   The visible items carry one or two fade groups (UIFadeGroupType; the
 //   alpha is the larger of the two): 1 health, 2 breath, 3 weapons, 4 gear,
@@ -26,32 +29,39 @@
 //   (0x004EBC20). Anchors are fractions of the screen (0 to 1, x right,
 //   y down).
 //
-// Elements are whole subtrees of the player HUD tree, found by structure:
-// the tree is walked from its root, and the first item (from the top) whose
-// subtree's "primary" fade groups all belong to one element becomes a root
-// of that element -- 5, 14, 16 the item wheel; 3, 4 the weapon and gear
-// readout with the ammo numbers. Pickup flashes and the low-health warning
-// (9, 10, 11, 15) are not primary: they ride inside the element that holds
-// them. Every other primary group (health, hints, ...) keeps its subtree
+// Elements are whole subtrees of the player HUD, found by structure. Every
+// part of the HUD menu belongs to the item wheel (unless it carries another
+// element's fade group). The background group is walked from its root, and
+// the first item (from the top) whose subtree's "primary" fade groups all
+// belong to one element becomes a root of that element -- 1, 2 the health
+// and breath meters; 3, 4 the weapon and gear readout with the ammo
+// numbers; 5, 14, 16 the item wheel. Pickup flashes and the low-health
+// warning (9, 10, 11, 15) are not primary: they ride inside the element
+// that holds them. Every other primary group (hints, ...) keeps its subtree
 // where it is. A group holding more than one element is split one level
-// down, and so on. A subtree under a split group with only pickup / warning
-// groups joins the element whose root sits next to it on screen (within
-// kJoinReach); everything else stays. While a root draws, GetTransXYZ is
-// hooked to add the element's offset to every anchor below it, so the whole
-// element moves rigidly whatever the size of its roots. A hidden element's
-// roots are simply not drawn. Nothing outside the player HUD is touched.
+// down, and so on. A subtree under a split group with no primary group
+// (pickups, warnings, unfaded highlights) joins the element whose parts it
+// sits next to on screen: every one of its parts within kJoinReach of that
+// element's box; if it does not fit as a whole, its children are tried one
+// by one. While a root draws, GetTransXYZ is hooked to add the element's
+// offset to every anchor below it, so the whole element moves rigidly
+// whatever the size of its roots. A hidden element's roots are simply not
+// drawn. Nothing outside the player HUD is touched.
 //
-// hud_debug = 1 dumps the whole tree with this classification once per
-// HUD (trlvr.log, "hud elements: tree"), so a wrong pick can be corrected.
+// The tree is walked again every frame and classified again; when it
+// changes (the HUD rebuilt, the menu swapped) the new one replaces the old
+// and is reported again. hud_debug = 1 dumps the whole tree with this
+// classification (trlvr.log, "hud elements: tree"), so a wrong pick can be
+// corrected.
 //
 // Held in view: the settings panel does not pause the game; it only takes
 // the controllers, so with no input the HUD's fade groups run out their hold
 // time and fade away. While the panel is open, the fade timers of health,
-// weapons, gear and the gear cross (UIFadeGroupData, see hold_hud_visible)
-// are kept inside their hold window and their alphas at 1, every frame,
-// before the HUD draws. When it closes they hold a moment, then fade as
-// usual. Items the game hides by its own rules (a hide function, an empty
-// weapon selector) stay hidden.
+// weapons, gear and the gear cross with its binocular slot
+// (UIFadeGroupData, see hold_hud_visible) are kept inside their hold window
+// and their alphas at 1, every frame, before the HUD draws. When it closes
+// they hold a moment, then fade as usual. Items the game hides by its own
+// rules (a hide function, an empty weapon selector) stay hidden.
 
 #include "hud_elements.h"
 
@@ -78,7 +88,8 @@ namespace trlvr
             kNone = 0,
             kItems = 1,   // the item wheel (d-pad gear cross)
             kAmmo = 2,    // the weapon / ammo readout
-            kElementCount = 3,
+            kHealth = 3,  // the health bar (and the breath bar above it)
+            kElementCount = 4,
         };
 
         constexpr unsigned bit(unsigned id) { return 1u << id; }
@@ -86,13 +97,15 @@ namespace trlvr
         const unsigned kFadeCount = 0x12;
         const unsigned kItemsPrimary = bit(5) | bit(14) | bit(16);
         const unsigned kAmmoPrimary = bit(3) | bit(4);
-        const unsigned kOtherPrimary = bit(1) | bit(2) | bit(6) | bit(7) |
-                                       bit(8) | bit(12) | bit(13) | bit(17);
-        const unsigned kPrimary = kItemsPrimary | kAmmoPrimary | kOtherPrimary;
-        const unsigned kSecondary = bit(9) | bit(10) | bit(11) | bit(15);
-        // How far (screen fractions, per axis) a pickup / warning subtree may
-        // sit from an element's root to join it.
-        const float kJoinReach = 0.12f;
+        const unsigned kHealthPrimary = bit(1) | bit(2);
+        const unsigned kOtherPrimary = bit(6) | bit(7) | bit(8) | bit(12) |
+                                       bit(13) | bit(17);
+        const unsigned kPrimary = kItemsPrimary | kAmmoPrimary |
+                                  kHealthPrimary | kOtherPrimary;
+        // How far (screen fractions, per axis) every part of a subtree with
+        // no primary group (pickups, warnings, unfaded highlights) may sit
+        // outside an element's box to join it.
+        const float kJoinReach = 0.10f;
 
         // One fnTable per item type (UIItemType 1..15), with the drawFn each
         // must hold before it is swapped (read from trl.exe; the init
@@ -139,6 +152,17 @@ namespace trlvr
         const uintptr_t kHUDScreens = 0x011161D0;
         const uintptr_t kHUDScreenCount = 0x011161F8;
         const short kPlayerHUD = 5000;
+        // UIScreen +0x8 mainMenu, drawn after backgroundItems (UIScreen::Draw
+        // 0x004F7320). UIMenu { ...; float anchorX (+8), anchorY (+0xC); ...;
+        // UIItem* selector (+0x18), closedItems (+0x1C), backgroundItems
+        // (+0x20); int menuItemCount (+0x24); UIMenuItem* menuItems[] (+0x28,
+        // inline); } (UIMenu::Draw 0x004F4820). UIMenuItem { ...; float
+        // drawAnchorX (+0x48), drawAnchorY (+0x4C); UIItemStaticText*
+        // textItem (+0x50); UIItem* drawItems (+0x54), selectedItems (+0x58);
+        // UIItemTextSelector* textSelector (+0x5C); UIMenu* subMenu (+0x60);
+        // } (UIMenuItem::Draw 0x004F4430).
+        const unsigned kScreenMenu = 0x8;
+        const unsigned kScreenItems = 0xC;
 
         // The fade groups (UIFadeGroupTrigger 0x004EB1D0, UpdateFadeGroup
         // 0x004EB340): [0x010C0A58] +0x14 count, +0x18 UIFadeGroupData*[]
@@ -150,7 +174,8 @@ namespace trlvr
         const uintptr_t kFadeTimeScale = 0x00EFE508;
         const uintptr_t kFadeValues = 0x011137B8;
         // Held in view while the settings panel is open.
-        const unsigned kHeldFades = bit(1) | bit(3) | bit(4) | bit(5);
+        const unsigned kHeldFades = bit(1) | bit(3) | bit(4) | bit(5) |
+                                    bit(16);
 
         // --- items -------------------------------------------------------
 
@@ -309,6 +334,7 @@ namespace trlvr
             float sx, sy;               // anchor from the data
             float rx, ry;               // anchor when last drawn
             bool rvalid, own_anchor;
+            bool menu;                  // from the HUD menu (the gear cross)
             unsigned char role, element;
         };
 
@@ -319,6 +345,7 @@ namespace trlvr
             int count;
             bool truncated;
             uint32_t signature;
+            const void* menu;           // the HUD menu walked with it
         };
         Tree g_tree = {};
         Tree g_scratch = {};
@@ -367,18 +394,78 @@ namespace trlvr
             return index;
         }
 
-        bool walk(Tree& t, const unsigned char* root)
+        // A top-level part of the HUD menu, and everything below it.
+        void add_menu_part(Tree& t, const unsigned char* item, float px,
+                           float py)
+        {
+            const int start = t.count;
+            add_node(t, item, -1, 0, px, py);
+            for (int i = start; i < t.count; ++i)
+                t.nodes[i].menu = true;
+        }
+
+        void add_menu(Tree& t, const unsigned char* menu, int level)
+        {
+            typedef const unsigned char* Ptr;
+            if (!menu || level > 2)
+                return;
+            const float ax = *reinterpret_cast<const float*>(menu + 0x8);
+            const float ay = *reinterpret_cast<const float*>(menu + 0xC);
+            const unsigned lists[3] = { 0x1C, 0x20, 0x18 };
+            for (unsigned offset : lists)
+                add_menu_part(t, *reinterpret_cast<const Ptr*>(menu + offset),
+                              ax, ay);
+            int count = *reinterpret_cast<const int*>(menu + 0x24);
+            if (count < 0 || count > 32)
+                count = 0;
+            for (int i = 0; i < count; ++i)
+            {
+                const Ptr entry =
+                    reinterpret_cast<const Ptr*>(menu + 0x28)[i];
+                if (!entry)
+                    continue;
+                float mx = *reinterpret_cast<const float*>(entry + 0x48);
+                float my = *reinterpret_cast<const float*>(entry + 0x4C);
+                if (mx == 0.0f && my == 0.0f)
+                {
+                    mx = ax;
+                    my = ay;
+                }
+                const unsigned parts[4] = { 0x54, 0x58, 0x50, 0x5C };
+                for (unsigned offset : parts)
+                    add_menu_part(t,
+                        *reinterpret_cast<const Ptr*>(entry + offset), mx, my);
+                add_menu(t, *reinterpret_cast<const Ptr*>(entry + 0x60),
+                         level + 1);
+            }
+        }
+
+        // The background group from its root, then the HUD menu.
+        bool walk(Tree& t, const unsigned char* root, const unsigned char* menu)
         {
             t.count = 0;
             t.truncated = false;
+            t.menu = menu;
             volatile bool ok = false;
             __try
             {
                 add_node(t, root, -1, 0, 0.0f, 0.0f);
-                ok = true;
+                ok = t.count > 0;
             }
             __except(EXCEPTION_EXECUTE_HANDLER)
             {
+            }
+            if (ok && menu)
+            {
+                const int before = t.count;
+                __try
+                {
+                    add_menu(t, menu, 0);
+                }
+                __except(EXCEPTION_EXECUTE_HANDLER)
+                {
+                    t.count = before;   // a broken menu: the HUD alone
+                }
             }
             uint32_t h = 2166136261u;
             for (int i = 0; i < t.count; ++i)
@@ -386,13 +473,14 @@ namespace trlvr
                 const uint32_t parts[3] = {
                     (uint32_t)(uintptr_t)t.nodes[i].item,
                     (uint32_t)t.nodes[i].type,
-                    (uint32_t)(int)t.nodes[i].parent,
+                    (uint32_t)(int)t.nodes[i].parent |
+                        (t.nodes[i].menu ? 0x80000000u : 0u),
                 };
                 for (uint32_t v : parts)
                     for (int b = 0; b < 4; ++b)
                         h = (h ^ ((v >> (8 * b)) & 0xFF)) * 16777619u;
             }
-            t.signature = h ^ (uint32_t)t.count;
+            t.signature = h ^ (uint32_t)t.count ^ (uint32_t)(uintptr_t)menu;
             return ok && t.count > 0;
         }
 
@@ -400,6 +488,18 @@ namespace trlvr
         {
             *x = n.rvalid ? n.rx : n.sx;
             *y = n.rvalid ? n.ry : n.sy;
+        }
+
+        // The first element whose primary fade groups cover all of these.
+        int element_for(unsigned primary)
+        {
+            if (!(primary & ~kItemsPrimary))
+                return kItems;
+            if (!(primary & ~kAmmoPrimary))
+                return kAmmo;
+            if (!(primary & ~kHealthPrimary))
+                return kHealth;
+            return kNone;
         }
 
         void classify_node(Tree& t, int index)
@@ -411,21 +511,16 @@ namespace trlvr
                 n.role = kStay;
                 return;
             }
-            if (!(primary & ~kItemsPrimary))
+            const int element = element_for(primary);
+            if (element != kNone)
             {
                 n.role = kRoot;
-                n.element = kItems;
+                n.element = (unsigned char)element;
                 return;
             }
-            if (!(primary & ~kAmmoPrimary))
+            if (!(primary & (kItemsPrimary | kAmmoPrimary | kHealthPrimary)))
             {
-                n.role = kRoot;
-                n.element = kAmmo;
-                return;
-            }
-            if (!(primary & (kItemsPrimary | kAmmoPrimary)))
-            {
-                n.role = kStay;         // health, hints, ...: none of ours
+                n.role = kStay;         // hints, ...: none of ours
                 return;
             }
             bool any = false;
@@ -439,6 +534,95 @@ namespace trlvr
             n.role = any ? kSplit : kStay;
         }
 
+        // One past the last node of index's subtree.
+        int subtree_end(const Tree& t, int index)
+        {
+            int end = index + 1;
+            while (end < t.count && t.nodes[end].depth > t.nodes[index].depth)
+                ++end;
+            return end;
+        }
+
+        // A part that draws something at a place of its own: no children,
+        // not an (empty) group or selector, not at the unset 0,0.
+        bool visible_part(const Tree& t, int i, int end, float* x, float* y)
+        {
+            const Node& n = t.nodes[i];
+            if (n.type == 1 || n.type == 10 || n.type == 11)
+                return false;
+            if (i + 1 < end && t.nodes[i + 1].parent == i)
+                return false;
+            place(n, x, y);
+            return std::isfinite(*x) && std::isfinite(*y) &&
+                   (*x != 0.0f || *y != 0.0f);
+        }
+
+        struct Box
+        {
+            float x0, y0, x1, y1;
+            bool valid;
+        };
+
+        void extend(Box& b, float x, float y)
+        {
+            if (!b.valid)
+            {
+                b = { x, y, x, y, true };
+                return;
+            }
+            b.x0 = fminf(b.x0, x);
+            b.y0 = fminf(b.y0, y);
+            b.x1 = fmaxf(b.x1, x);
+            b.y1 = fmaxf(b.y1, y);
+        }
+
+        // How far (per axis, the larger) a point lies outside a box.
+        float outside(const Box& b, float x, float y)
+        {
+            const float dx = fmaxf(fmaxf(b.x0 - x, x - b.x1), 0.0f);
+            const float dy = fmaxf(fmaxf(b.y0 - y, y - b.y1), 0.0f);
+            return fmaxf(dx, dy);
+        }
+
+        // A subtree with no primary group joins the element whose box holds
+        // every one of its parts (within kJoinReach), the nearest one if
+        // more than one does; otherwise its children are tried.
+        void try_join(Tree& t, int index, const Box* boxes)
+        {
+            const int end = subtree_end(t, index);
+            float worst[kElementCount] = {};
+            int parts = 0;
+            for (int i = index; i < end; ++i)
+            {
+                float x, y;
+                if (!visible_part(t, i, end, &x, &y))
+                    continue;
+                ++parts;
+                for (int e = 1; e < kElementCount; ++e)
+                    worst[e] = boxes[e].valid
+                        ? fmaxf(worst[e], outside(boxes[e], x, y)) : 1e9f;
+            }
+            if (!parts)
+                return;
+            int best = kNone;
+            float best_d = kJoinReach;
+            for (int e = 1; e < kElementCount; ++e)
+                if (boxes[e].valid && worst[e] <= best_d)
+                {
+                    best_d = worst[e];
+                    best = e;
+                }
+            if (best != kNone)
+            {
+                t.nodes[index].role = kJoin;
+                t.nodes[index].element = (unsigned char)best;
+                return;
+            }
+            for (int c = index + 1; c < end; ++c)
+                if (t.nodes[c].parent == index)
+                    try_join(t, c, boxes);
+        }
+
         void classify(Tree& t)
         {
             for (int i = 0; i < t.count; ++i)
@@ -446,40 +630,45 @@ namespace trlvr
                 t.nodes[i].role = kInside;
                 t.nodes[i].element = kNone;
             }
-            if (!t.count)
-                return;
-            classify_node(t, 0);
-            // Pickup flashes and warnings beside an element join it.
+            // The background group from its root; every part of the HUD
+            // menu is the gear cross unless it shows another element.
             for (int i = 0; i < t.count; ++i)
             {
                 Node& n = t.nodes[i];
-                if (n.role != kStay || n.parent < 0 ||
-                    t.nodes[n.parent].role != kSplit ||
-                    !(n.sub & kSecondary) || (n.sub & kPrimary) ||
-                    !n.own_anchor)
+                if (n.parent >= 0)
                     continue;
-                float x, y;
-                place(n, &x, &y);
-                int best = -1;
-                float best_d = kJoinReach;
-                for (int j = 0; j < t.count; ++j)
+                if (n.menu && !(n.sub & kPrimary & ~kItemsPrimary))
                 {
-                    if (t.nodes[j].role != kRoot)
-                        continue;
-                    float rx, ry;
-                    place(t.nodes[j], &rx, &ry);
-                    const float d = fmaxf(fabsf(x - rx), fabsf(y - ry));
-                    if (d <= best_d)
-                    {
-                        best_d = d;
-                        best = j;
-                    }
+                    n.role = kRoot;
+                    n.element = kItems;
                 }
-                if (best >= 0)
+                else
                 {
-                    n.role = kJoin;
-                    n.element = t.nodes[best].element;
+                    classify_node(t, i);
                 }
+            }
+            // Where each element's parts are.
+            Box boxes[kElementCount] = {};
+            for (int i = 0; i < t.count; ++i)
+            {
+                if (t.nodes[i].role != kRoot)
+                    continue;
+                const int end = subtree_end(t, i);
+                for (int j = i; j < end; ++j)
+                {
+                    float x, y;
+                    if (visible_part(t, j, end, &x, &y))
+                        extend(boxes[t.nodes[i].element], x, y);
+                }
+            }
+            // Pickup flashes, warnings and highlights beside an element join
+            // it.
+            for (int i = 0; i < t.count; ++i)
+            {
+                const Node& n = t.nodes[i];
+                if (n.role == kStay && n.parent >= 0 &&
+                    t.nodes[n.parent].role == kSplit && !(n.sub & kPrimary))
+                    try_join(t, i, boxes);
             }
         }
 
@@ -530,6 +719,9 @@ namespace trlvr
             if (element == kItems)
                 return { c.hud_items_x * 0.5f, -c.hud_items_y * 0.5f,
                          c.hud_items_hide };
+            if (element == kHealth)
+                return { c.hud_health_x * 0.5f, -c.hud_health_y * 0.5f,
+                         c.hud_health_hide };
             return { c.hud_ammo_x * 0.5f, -c.hud_ammo_y * 0.5f,
                      c.hud_ammo_hide };
         }
@@ -544,7 +736,8 @@ namespace trlvr
         const char* element_name(int element)
         {
             return element == kItems ? "item wheel"
-                 : element == kAmmo ? "ammo" : "none";
+                 : element == kAmmo ? "ammo"
+                 : element == kHealth ? "health" : "none";
         }
 
         void fade_list(unsigned mask, char* out, size_t size)
@@ -636,9 +829,14 @@ namespace trlvr
 
         void dump_tree(const Tree& t)
         {
-            log("hud elements: tree of the player HUD, %d items%s (fade "
-                "groups own/subtree; anchor as drawn, or * from the data; "
-                "-> element)", t.count, t.truncated ? ", cut short" : "");
+            int menu = 0;
+            for (int i = 0; i < t.count; ++i)
+                menu += t.nodes[i].menu ? 1 : 0;
+            log("hud elements: tree of the player HUD, %d items (%d in its "
+                "background group, %d in its menu %p)%s (fade groups "
+                "own/subtree; anchor as drawn, or * from the data; -> "
+                "element)", t.count, t.count - menu, menu, t.menu,
+                t.truncated ? ", cut short" : "");
             for (int i = 0; i < t.count; ++i)
             {
                 const Node& n = t.nodes[i];
@@ -675,10 +873,12 @@ namespace trlvr
                 default: break;
                 }
                 const int indent = n.depth < 12 ? n.depth * 2 : 24;
-                log("hud elements: tree %*s%s %p, fade %s/%s, at %.3f,%.3f%s"
-                    "%s%s%s", indent, "", kTables[n.type - 1].name,
-                    (const void*)n.item, own, sub, x, y, n.rvalid ? "" : "*",
-                    extra[0] ? ", " : "", extra, role);
+                log("hud elements: tree %*s%s%s %p, fade %s/%s, at %.3f,%.3f%s"
+                    "%s%s%s", indent, "",
+                    n.menu && n.parent < 0 ? "menu: " : "",
+                    kTables[n.type - 1].name, (const void*)n.item, own, sub,
+                    x, y, n.rvalid ? "" : "*", extra[0] ? ", " : "", extra,
+                    role);
             }
         }
 
@@ -693,9 +893,9 @@ namespace trlvr
                     ++joins[t.nodes[i].element];
             }
             log("hud elements: player HUD %s: %d items; item wheel %d "
-                "subtree(s) + %d beside it, ammo %d + %d; the rest stays",
-                when, t.count, roots[kItems], joins[kItems], roots[kAmmo],
-                joins[kAmmo]);
+                "subtree(s) + %d beside it, ammo %d + %d, health %d + %d; "
+                "the rest stays", when, t.count, roots[kItems], joins[kItems],
+                roots[kAmmo], joins[kAmmo], roots[kHealth], joins[kHealth]);
         }
 
         const char* screen_name(int id)
@@ -751,8 +951,10 @@ namespace trlvr
             unsigned want = kHeldFades;
             if (c.hud_ammo_hide)
                 want &= ~kAmmoPrimary;
+            if (c.hud_health_hide)
+                want &= ~kHealthPrimary;
             if (c.hud_items_hide || camera_retail_gear_cross_hidden())
-                want &= ~bit(5);
+                want &= ~(bit(5) | bit(16));
             volatile unsigned held = 0;
             __try
             {
@@ -827,7 +1029,7 @@ namespace trlvr
             return nullptr;
         }
 
-        const void* player_hud_root()
+        const unsigned char* player_hud_screen()
         {
             __try
             {
@@ -840,13 +1042,20 @@ namespace trlvr
                     if (screens[i] &&
                         *reinterpret_cast<const short*>(screens[i]) ==
                             kPlayerHUD)
-                        return *reinterpret_cast<const void* const*>(
-                            screens[i] + 0xC);
+                        return screens[i];
             }
             __except(EXCEPTION_EXECUTE_HANDLER)
             {
             }
             return nullptr;
+        }
+
+        const unsigned char* screen_part(const unsigned char* screen,
+                                         unsigned offset)
+        {
+            return screen ? *reinterpret_cast<const unsigned char* const*>(
+                                screen + offset)
+                          : nullptr;
         }
 
         int draw_element(int element, void* item, void* info,
@@ -865,17 +1074,42 @@ namespace trlvr
             return result;
         }
 
+        // A part of the player HUD outside any element being drawn: note
+        // where it lands this frame (the interface keeps a sibling's x),
+        // then draw it as its role says.
+        int draw_node(Node* n, const unsigned char* item, unsigned type,
+                      void* item_ptr, void* info_ptr, PFN_Draw original)
+        {
+            if (!n)
+                return original(item_ptr, info_ptr);
+            const float* info = static_cast<const float*>(info_ptr);
+            float x = 0.0f, y = 0.0f;
+            resolve_anchor(item, type, info[0], info[1], &x, &y);
+            if (std::isfinite(x) && std::isfinite(y))
+            {
+                n->rx = x;
+                n->ry = y;
+                n->rvalid = true;
+            }
+            if (n->role == kRoot || n->role == kJoin)
+                return draw_element(n->element, item_ptr, info_ptr, original);
+            return original(item_ptr, info_ptr);
+        }
+
         // Once a frame: the tree (rebuilt if it changed), the panel's hold,
-        // then the HUD itself.
-        int draw_hud_root(void* item, void* info, PFN_Draw original)
+        // then the HUD's background group. Its menu (the gear cross) draws
+        // next, through draw_item.
+        int draw_hud_root(void* item, void* info, PFN_Draw original,
+                          const unsigned char* menu)
         {
             const bool debug = config().hud_debug;
             if (debug)
                 debug_screens();
-            if (walk(g_scratch, static_cast<const unsigned char*>(item)))
+            if (walk(g_scratch, static_cast<const unsigned char*>(item), menu))
             {
                 if (g_scratch.signature != g_tree.signature ||
-                    g_scratch.count != g_tree.count)
+                    g_scratch.count != g_tree.count ||
+                    g_scratch.menu != g_tree.menu)
                 {
                     memcpy(&g_tree, &g_scratch, sizeof(g_tree));
                     build_index();
@@ -887,6 +1121,7 @@ namespace trlvr
             else
             {
                 g_tree.count = 0;
+                g_tree.menu = nullptr;
                 memset(g_index, 0, sizeof(g_index));
             }
             if (g_stable_draws < 0x7FFFFFFF)
@@ -907,14 +1142,15 @@ namespace trlvr
                 g_dumped = true;
                 ++g_dumps;
                 dump_tree(g_tree);
-                log("hud elements: last frame moved %u item wheel and %u "
-                    "ammo parts", g_moved[kItems], g_moved[kAmmo]);
+                log("hud elements: last frame moved %u item wheel, %u ammo "
+                    "and %u health parts", g_moved[kItems], g_moved[kAmmo],
+                    g_moved[kHealth]);
             }
             if (overlay_open())
                 hold_hud_visible();
 
-            g_moved[kItems] = g_moved[kAmmo] = 0;
-            const Node* self = find_node(item);
+            memset(g_moved, 0, sizeof(g_moved));
+            Node* self = find_node(item);
             g_in_hud = true;
             const int result = self && self->role == kRoot
                 ? draw_element(self->element, item, info, original)
@@ -934,40 +1170,37 @@ namespace trlvr
             if (g_element != kNone)
                 return original(item_ptr, info_ptr);   // inside an element
 
-            if (!g_in_hud)
-            {
-                if (!config().hud_debug && !overlay_open() &&
-                    neutral(settings_for(kItems)) &&
-                    neutral(settings_for(kAmmo)))
-                    return original(item_ptr, info_ptr);
-                const void* root = player_hud_root();
-                if (root && root == item_ptr)
-                {
-                    g_root_seen = true;
-                    return draw_hud_root(item_ptr, info_ptr, original);
-                }
-                if (root && !g_root_seen && ++g_root_missed == 2000)
-                    log("hud elements: the player HUD's root group %p has "
-                        "not drawn through the item tables; nothing is "
-                        "moved", root);
-                return original(item_ptr, info_ptr);
-            }
+            if (g_in_hud)
+                return draw_node(find_node(item_ptr), item, type, item_ptr,
+                                 info_ptr, original);
 
-            Node* n = find_node(item_ptr);
-            if (!n || n->role == kInside)
+            if (!config().hud_debug && !overlay_open() &&
+                neutral(settings_for(kItems)) &&
+                neutral(settings_for(kAmmo)) &&
+                neutral(settings_for(kHealth)))
                 return original(item_ptr, info_ptr);
-            // Where it lands this frame (the interface keeps a sibling's x).
-            const float* info = static_cast<const float*>(info_ptr);
-            float x = 0.0f, y = 0.0f;
-            resolve_anchor(item, type, info[0], info[1], &x, &y);
-            if (std::isfinite(x) && std::isfinite(y))
+            const unsigned char* screen = player_hud_screen();
+            const void* root = screen_part(screen, kScreenItems);
+            if (root && root == item_ptr)
             {
-                n->rx = x;
-                n->ry = y;
-                n->rvalid = true;
+                g_root_seen = true;
+                return draw_hud_root(item_ptr, info_ptr, original,
+                                     screen_part(screen, kScreenMenu));
             }
-            if (n->role == kRoot || n->role == kJoin)
-                return draw_element(n->element, item_ptr, info_ptr, original);
+            // The HUD menu's parts (the gear cross), drawn after the root,
+            // while the tree walked this frame is still the screen's.
+            if (root && g_tree.count && g_tree.nodes[0].item == root &&
+                g_tree.menu && g_tree.menu == screen_part(screen, kScreenMenu))
+            {
+                Node* n = find_node(item_ptr);
+                if (n && n->menu)
+                    return draw_node(n, item, type, item_ptr, info_ptr,
+                                     original);
+            }
+            if (root && !g_root_seen && ++g_root_missed == 2000)
+                log("hud elements: the player HUD's root group %p has "
+                    "not drawn through the item tables; nothing is "
+                    "moved", root);
             return original(item_ptr, info_ptr);
         }
 
@@ -1040,9 +1273,10 @@ namespace trlvr
         }
         const Config& c = config();
         log("hud elements: on (15 item draws wrapped); item wheel x=%+.2f "
-            "y=%+.2f%s, ammo x=%+.2f y=%+.2f%s%s", c.hud_items_x,
-            c.hud_items_y, c.hud_items_hide ? " hidden" : "", c.hud_ammo_x,
-            c.hud_ammo_y, c.hud_ammo_hide ? " hidden" : "",
+            "y=%+.2f%s, ammo x=%+.2f y=%+.2f%s, health x=%+.2f y=%+.2f%s%s",
+            c.hud_items_x, c.hud_items_y, c.hud_items_hide ? " hidden" : "",
+            c.hud_ammo_x, c.hud_ammo_y, c.hud_ammo_hide ? " hidden" : "",
+            c.hud_health_x, c.hud_health_y, c.hud_health_hide ? " hidden" : "",
             c.hud_debug ? ", hud_debug on" : "");
     }
 }

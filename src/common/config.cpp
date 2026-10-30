@@ -197,6 +197,9 @@ namespace trlvr
             { L"vr", L"hud_ammo_x", L"0.0" },
             { L"vr", L"hud_ammo_y", L"0.0" },
             { L"vr", L"hud_ammo_hide", L"0" },
+            { L"vr", L"hud_health_x", L"0.0" },
+            { L"vr", L"hud_health_y", L"0.0" },
+            { L"vr", L"hud_health_hide", L"0" },
             { L"vr", L"hud_debug", L"0" },
             { L"vr", L"overlay_vr_distance", L"1.0" },
             { L"vr", L"overlay_vr_width_degrees", L"50" },
@@ -608,7 +611,8 @@ namespace trlvr
             L"hud_offset_y = 0.0\r\n"
             L"; Move single HUD elements as a whole, in the same units as hud_offset\r\n"
             L"; (-1 to 1): hud_items_* is the item wheel (the d-pad gear cross, every\r\n"
-            L"; slot), hud_ammo_* the weapon and ammo readout. _hide = 1 turns it off.\r\n"
+            L"; slot), hud_ammo_* the weapon and ammo readout, hud_health_* the health\r\n"
+            L"; bar (with the breath bar above it). _hide = 1 turns it off.\r\n"
             L"; hud_debug = 1 logs the HUD's parts and which element each belongs to.\r\n"
             L"hud_items_x = 0.0\r\n"
             L"hud_items_y = 0.0\r\n"
@@ -616,6 +620,9 @@ namespace trlvr
             L"hud_ammo_x = 0.0\r\n"
             L"hud_ammo_y = 0.0\r\n"
             L"hud_ammo_hide = 0\r\n"
+            L"hud_health_x = 0.0\r\n"
+            L"hud_health_y = 0.0\r\n"
+            L"hud_health_hide = 0\r\n"
             L"hud_debug = 0\r\n"
             L"\r\n"
             L"; The settings window (Insert) in the headset: a panel placed in front\r\n"
@@ -1339,6 +1346,10 @@ namespace trlvr
             g_config.hud_ammo_y = offset(L"hud_ammo_y");
             g_config.hud_ammo_hide =
                 read_bool(L"vr", L"hud_ammo_hide", false, path);
+            g_config.hud_health_x = offset(L"hud_health_x");
+            g_config.hud_health_y = offset(L"hud_health_y");
+            g_config.hud_health_hide =
+                read_bool(L"vr", L"hud_health_hide", false, path);
             g_config.hud_debug = read_bool(L"vr", L"hud_debug", false, path);
         }
         {

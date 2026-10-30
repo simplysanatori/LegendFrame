@@ -207,6 +207,7 @@ WANT = [("fsaa", "off"), ("msaa", "2"), ("comfort_vignette", "off"), ("cull_fov_
         ("stereo_mode", "singlepass"), ("stereo_stats", "0"), ("vr_runtime", "openvr"),
         ("submit_wait", "0"), ("god_carry_fix", "1"), ("hud_offset_x", "-0.08"), ("hud_offset_y", "0.08"),
         ("hud_items_x", "0.20"), ("hud_items_y", "0.20"), ("hud_ammo_x", "0.20"), ("hud_ammo_y", "-0.20"),
+        ("hud_health_x", "0.20"), ("hud_health_y", "-0.20"),
         ("overlay_vr_width_degrees", "50"), ("overlay_vr_resolution", "1536"), ("overlay_vr_text_scale", "1.25")]
 # Old defaults that were never a choice: moved on to the Frame value when found unchanged.
 UPGRADE = {"overlay_vr_width_degrees": ("38", "50")}

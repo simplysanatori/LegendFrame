@@ -367,8 +367,9 @@ namespace trlvr
         float hud_offset_y = 0.0f;
         // Single HUD elements, each moved as a whole inside the game's own
         // interface before the HUD reaches the headset (hud_elements.cpp):
-        // the item wheel (the d-pad gear cross, every slot) and the weapon /
-        // ammo readout (icon and numbers). Same units and signs as
+        // the item wheel (the d-pad gear cross, every slot), the weapon /
+        // ammo readout (icon and numbers) and the health bar (with the
+        // breath bar above it). Same units and signs as
         // hud_offset_x / _y (+x right, +y up, 0.5 = a quarter of the view),
         // applied under them. hide skips it (ini only). hud_debug logs the
         // HUD tree and what was picked.
@@ -378,6 +379,9 @@ namespace trlvr
         float hud_ammo_x = 0.0f;
         float hud_ammo_y = 0.0f;
         bool hud_ammo_hide = false;
+        float hud_health_x = 0.0f;
+        float hud_health_y = 0.0f;
+        bool hud_health_hide = false;
         bool hud_debug = false;
 
         // The settings overlay in the headset: a square panel placed in the
