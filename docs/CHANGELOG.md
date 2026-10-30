@@ -8,7 +8,7 @@ Tomb Raider: Legend is a 32-bit Windows game. On the Frame it runs through Proto
 
 ### Performance
 
-- The original mod ran at about 40 frames a second in gameplay on the Frame. LegendFrame holds the headset's 72 Hz most of the time, with dips to the mid 60s.
+- The original mod ran at about 40 frames a second in gameplay on the Frame. LegendFrame holds the headset's 72 Hz most of the time, with dips into the 50s in the busiest areas.
 - Each frame takes about 14 ms instead of about 25.
 - Lowering the resolution never helped the original mod. The time was going into the doubled draws, not the GPU.
 
@@ -36,7 +36,7 @@ The upstream layout was made for Oculus Touch. On the Frame, X and Y did the sam
 - **Right bumper holsters.** Holding it for a moment puts away whatever is drawn: the pistols to the hips, the long gun to the shoulder. The Frame's cameras often lose the controllers at the hips and behind the shoulder, so a button is the dependable way, but the reaches still work. `frame_holster_hold` sets how long.
 - **Left bumper held** does the board-mode finger flick.
 - **Binoculars, then aim.** In the binocular view in third person, X puts the binoculars away and then aims.
-- **Precision aim feedback.** The game only lets Lara aim precisely on her feet. If I press X while she jumps, hangs or climbs, a short note in the headset says why, instead of nothing happening.
+- **Precision aim feedback.** The game only lets Lara aim precisely on her feet. If I press X while she jumps, hangs or climbs, the game's own hint box says why, in the same box its tutorial hints use, instead of nothing happening. It steps aside if the game is already showing a hint.
 - **Prompts name the Frame's buttons** (A, B, X, Y, D-pad Up and so on, Menu, View). English only; other languages keep upstream's names.
 
 If SteamVR kept an older binding, select the supplied one again under Manage Controller Bindings.
