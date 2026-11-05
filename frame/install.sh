@@ -399,7 +399,7 @@ if [ "$DO_SHORTCUT" = 1 ]; then
     die "$UID_FOUND"
   rm -f "$DROPIN_DIR/61-legendframe-remove.conf"
   if python3 -I "$SCRIPT_HOME/trlvr-config.py" "${ARGS[@]}" --check; then
-    say "Shortcut: \"Tomb Raider: Legend VR\" is already in place."
+    say "Shortcut: \"Tomb Raider: Legend VR\" is already in place. Launch it, not the store entry."
   else
     # systemd treats % and $ specially in command lines
     sdq() { local s="${1//%/%%}"; s="${s//\$/\$\$}"; printf '"%s"' "$s"; }
@@ -418,10 +418,10 @@ if [ "$DO_SHORTCUT" = 1 ]; then
       say "  With Steam closed, run: python3 -I \"$SCRIPT_HOME/trlvr-config.py\" --steam-dir \"$STEAM_DIR\" --game-dir \"$GAME\" --userid $UID_FOUND"
     fi
     say "Shortcut queued: $DROPIN"
+    say ""
+    say "Restart Steam (Power > Exit Steam, then start it again) to add the shortcut, then launch"
+    say "\"Tomb Raider: Legend VR\", not the store entry. This installer never restarts Steam."
   fi
-  say ""
-  say "Restart Steam (Power > Exit Steam, then start it again) to add the shortcut, then launch"
-  say "\"Tomb Raider: Legend VR\", not the store entry. This installer never restarts Steam."
 fi
 say ""
 say "First run: if Tomb Raider: Legend's Setup dialog appears, turn Next Generation Content off. See docs/FRAME-INSTALL.md."

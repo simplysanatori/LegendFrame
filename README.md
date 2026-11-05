@@ -80,6 +80,10 @@ To update, run the installer again with the new zip. To remove LegendFrame, run 
 
 If you use [Frametanium](https://github.com/Cogential/frametanium), add `simplysanatori/LegendFrame` there. It downloads the release, runs its `install.sh` and updates it when I publish a new version. It uses the `legendframe-<version>-steam-frame-linux-arm64.zip` asset, which holds the mod files and the installer, and it does what `frame/install.sh --payload` does: install the mod into the Steam copy of Tomb Raider: Legend, seed the Frame settings, and queue the shortcut. Install Tomb Raider: Legend from Steam first and run it once from the store entry. If the shortcut is new, restart Steam yourself afterwards; the installer never does.
 
+## Install with FrameDrop
+
+[FrameDrop](https://framedropvr.com) can install this too: [Install with FrameDrop](https://framedropvr.com/install?manifest=https%3A%2F%2Fgithub.com%2Fsimplysanatori%2FLegendFrame%2Freleases%2Flatest%2Fdownload%2Flegendframe.framedrop.json). The release has a `legendframe-<version>-linux-arm64-framedrop.zip` and a `legendframe.framedrop.json` for it. FrameDrop unpacks the zip on the Frame and adds its own library entry, which runs the `run.sh` in the zip. The first time it runs, and again after an update, `run.sh` runs `install.sh` with the Steam shortcut step turned off, so you get FrameDrop's entry and no second one from the installer, and then tells you where to start the game. Install Tomb Raider: Legend from Steam first. The mod runs under Proton, so there is nothing for FrameDrop's entry to start: `run.sh` puts the mod into the Steam copy of the game, without the shortcut step, and tells you to start the game from the "Tomb Raider: Legend VR" entry. Run `install.sh` from the unpacked folder once to get that entry if you do not have it.
+
 ## First run
 
 On the first run the game shows its **Setup** dialog. You can run it once from the store entry before installing, so the registry section exists. In it:

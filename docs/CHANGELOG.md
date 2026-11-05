@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1 (November 2026)
+
+- You can now install and update LegendFrame with Frametanium. The Frame zip is named `legendframe-<version>-steam-frame-linux-arm64.zip` and carries its own `install.sh`.
+- `install.sh` no longer tells you to restart Steam when the "Tomb Raider: Legend VR" entry is already in place.
+- The mod itself is the same as 1.0.0 (the in-game menu still says 1.0.0); 1.0.1 is a new package.
+- The release also has a `legendframe-<version>-linux-arm64-framedrop.zip` and a manifest for FrameDrop. It adds its own library entry, and its `run.sh` installs the release without adding a second one.
+
 ## 1.0.0 (October 2026)
 
 The first release of LegendFrame: Tomb Raider: Legend in VR on the Valve Steam Frame. It is my Steam Frame version of RototRobot's [Tomb-Raider-Legend-VR-Port](https://github.com/RototRobot/Tomb-Raider-Legend-VR-Port) 1.1.0, and all of the VR is theirs: the stereo view, head tracking, motion controls, the third-person VR camera, first-person mode and god mode. You need your own copy of the game from Steam.
