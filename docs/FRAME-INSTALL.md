@@ -17,8 +17,8 @@ LegendFrame is the Steam Frame fork of it. This guide describes LegendFrame 1.0.
   named `proton_11-arm64`. Check it under Steam > Settings > Compatibility if the name differs.
 - A built or packaged LegendFrame: a folder containing `d3d9.dll`, `d3d9_dxvk.dll`,
   `openvr_api.dll`, `trlvr_launcher.exe`, `trlvr_actions.json` and the `bindings_*.json` files. Build
-  it with the container toolchain in `toolchain/` (see the README; it runs on the Frame itself) or take a
-  release package. There is no GitHub release yet. The mingw-built `d3d9.dll` links
+  it with the container toolchain in `toolchain/` (see [AGENTS.md](../AGENTS.md); it runs on the Frame itself) or take a
+  release package from the [Releases](https://github.com/simplysanatori/LegendFrame/releases) page. The mingw-built `d3d9.dll` links
   `openxr_loader.dll` statically, so that file must be in the payload and be installed next to it.
 - A terminal on the Frame (SSH, or Konsole from the desktop).
 
