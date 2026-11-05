@@ -8,7 +8,9 @@
 #   install.sh [--payload DIR|ZIP] [--steam-dir DIR] [--game-dir DIR] [--userid N] [options]
 #
 #   --payload DIR|ZIP   folder with the built files, or the release zip
-#                       (legendframe-<version>-payload.zip); default: ./dist next to this script
+#                       (legendframe-<version>-payload.zip or -steam-frame-linux-arm64.zip); default: this
+#                       script's own folder when the payload is there (the steam-frame zip),
+#                       else ./dist next to this script
 #   --steam-dir DIR     Steam root (default ~/.local/share/Steam)
 #   --game-dir DIR      the game folder, instead of looking it up from appmanifest_7000.acf
 #   --userid N          Steam user id, when more than one account has logged in on this Frame
@@ -92,7 +94,8 @@ fi
 # --- 1. payload -----------------------------------------------------------------------------
 if [ "$CHECK" = 0 ]; then
   if [ -z "$PAYLOAD" ]; then
-    for d in "$SELF_DIR/dist" "$SELF_DIR/../dist"; do
+    # The steam-frame zip carries this script beside the payload (that is how Frametanium runs it).
+    for d in "$SELF_DIR" "$SELF_DIR/dist" "$SELF_DIR/../dist"; do
       if [ -f "$d/d3d9.dll" ]; then PAYLOAD="$d"; break; fi
     done
     [ -n "$PAYLOAD" ] || die "no payload found. Build first (see toolchain/) or pass --payload DIR (looked in $SELF_DIR/dist and $SELF_DIR/../dist)."

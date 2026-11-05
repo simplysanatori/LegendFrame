@@ -76,6 +76,10 @@ The original two-eye renderer is still there as a setting (`stereo_mode=twopass`
 
 To update, run the installer again with the new zip. To remove LegendFrame, run `frame/uninstall.sh`. It deletes the mod's files, restores your backups and queues removal of the shortcut for the next Steam start. It leaves the registry values, the SteamVR per-app settings and the Proton mapping for app 7000 alone, and prints how to revert each.
 
+## Install with Frametanium
+
+If you use [Frametanium](https://github.com/Cogential/frametanium), add `simplysanatori/LegendFrame` there. It downloads the release, runs its `install.sh` and updates it when I publish a new version. It uses the `legendframe-<version>-steam-frame-linux-arm64.zip` asset, which holds the mod files and the installer, and it does what `frame/install.sh --payload` does: install the mod into the Steam copy of Tomb Raider: Legend, seed the Frame settings, and queue the shortcut. Install Tomb Raider: Legend from Steam first and run it once from the store entry. If the shortcut is new, restart Steam yourself afterwards; the installer never does.
+
 ## First run
 
 On the first run the game shows its **Setup** dialog. You can run it once from the store entry before installing, so the registry section exists. In it:
