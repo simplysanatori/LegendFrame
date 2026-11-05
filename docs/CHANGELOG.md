@@ -56,7 +56,7 @@ What the original mod did, and what this one does instead.
 - When the game won't allow precision aim (mid-jump, hanging, climbing), its own hint box says why.
 - The prompts name the Frame's buttons, in English.
 
-The full table is in the [README](../README.md#controls).
+The full table is in the [user guide](USER_GUIDE.md#controls).
 
 ### HUD
 

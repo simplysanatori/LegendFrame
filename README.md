@@ -2,244 +2,141 @@
 
 Tomb Raider: Legend in VR, running on the Valve Steam Frame.
 
-LegendFrame is a fork of RototRobot's [Tomb-Raider-Legend-VR-Port](https://github.com/RototRobot/Tomb-Raider-Legend-VR-Port) (TRLVR 1.1.0), the virtual reality mod for Tomb Raider: Legend. All of the VR work is RototRobot's: the stereo view, head tracking, motion controls, the third-person VR camera, first-person mode and god mode. The game is a 32-bit Windows program, so on the Frame it runs through Proton 11 ARM64 and an x86 emulator. LegendFrame makes the mod cheap enough to run at the headset's refresh rate there. The original README is kept as [docs/UPSTREAM-README.md](docs/UPSTREAM-README.md). Apache License 2.0, as upstream.
+A fork of RototRobot's [Tomb-Raider-Legend-VR-Port](https://github.com/RototRobot/Tomb-Raider-Legend-VR-Port) (TRLVR 1.1.0); all the VR work is theirs.
 
-You need your own copy of Tomb Raider: Legend from Steam. No game data is in this repository.
+## Features
 
-## Status
+- 72 Hz most of the time in gameplay
+- God mode carries fixed
+- Frame controller layout and button prompts
+- Movable health bar, ammo readout and item wheel
+- Bigger, sharper settings panel
+- Install and uninstall scripts
 
-Version 1.0.0 is released. Download it from the [Releases](https://github.com/simplysanatori/LegendFrame/releases) page. What changed is in [docs/CHANGELOG.md](docs/CHANGELOG.md).
+## How it works
 
-LegendFrame 1.0.0 is TRLVR 1.1.0 plus the Frame work in this repository. On the Frame it holds the headset's 72 Hz most of the time in gameplay.
-
-Known issues:
-
-- The game window starts docked in the SteamVR dashboard and hides with it. SteamVR's "Auto show game theater" setting sends every new game window to the theater screen, so the Frame install turns that setting off. If I still see a floating window, I press "Connect to dock" on it once, or turn off "Auto show game theater" under SteamVR Settings > Dashboard (Advanced). The setting also stops flat apps opening on the theater screen by themselves.
-- The game runs through OpenVR, not OpenXR. OpenXR isn't available to 32-bit games under Proton 11 ARM64.
-- Turn Next Generation Content off in the game's Setup dialog, or the VR view is black.
-- Very busy areas can still dip below 72. The game's own logic runs through the emulator.
-
-## What this adds to Tomb-Raider-Legend-VR-Port
-
-The original mod draws the whole scene twice, once per eye. On the Frame every draw call goes through the emulator, so that made it CPU-bound at about 40 frames a second, whatever the resolution. LegendFrame changes that and adds a few things for the Frame:
-
-- **Single-pass stereo.** Each draw from the game is sent once and lands in both eyes. The original mod sends it twice. The images are the same. It is done in the bundled DXVK build by viewport index: one draw with twice the instances, each instance routed to one eye's half of the image.
-- **Cheaper eye maths.** Both eyes' matrices come from one calculation, and the mod is built with faster maths for the emulator.
-- **No idle wait before each frame goes to SteamVR.** The CPU no longer sits waiting for the GPU before handing over a frame.
-- **God mode fixed.** In the original mod, picking up a character after a cutscene, or once Lara was wet or dirty, left parts of her stretched back to the pick-up spot. Carries now stay clean.
-- **Steam Frame controls.** The Frame controllers have a layout of their own. A, B, X and Y are on the right hand, each with its own job: X is precision aim and Y throws grenades. The d-pad is the game's gear cross (up medipack, right binoculars, down switch weapons, left personal light) and it moves through menus. The right Menu button pauses (hold it for the settings panel), the left View button opens the PDA and holding the left bumper does the board-mode finger flick. The prompts name the Frame's buttons.
-- **HUD position.** Sliders move the HUD, and it starts nudged up and to the left.
-- **HUD layout.** The health bar, the ammo readout and the item wheel each move as one piece, with a left / right and a down / up slider for each in the settings panel, and two more move the whole HUD. The HUD stays in view while the panel is open, so I can watch them move, and Reset to defaults puts everything back. On the Frame the health bar and the ammo readout start together a little to the right and lowered, and the item wheel a little to the right and raised.
-- **Readable settings panel.** In the original mod the settings panel was too small and soft to read on the Frame. Now it's drawn at 1536 pixels with mipmaps and a font made for that size, so the text stays crisp instead of breaking up. The text and controls are about 1.7 times bigger in view, and the panel spans 50 degrees instead of 38. A text-size slider in the panel makes it bigger or smaller.
-- **Frame install.** One script installs into your Steam copy of the game. It backs up your files, adds a "Tomb Raider: Legend VR" library entry on Proton 11 ARM64 and sets SteamVR to 72 Hz at 1440 per eye. It also turns off the effects that cost the most. An uninstall script puts everything back.
-- **Built on Linux.** The mod builds on the Frame itself. You don't need Windows or Visual Studio.
-
-The original two-eye renderer is still there as a setting (`stereo_mode=twopass`) and a live toggle in the settings panel. Everything else is upstream's.
+- The game runs on the Frame itself. No PC needed.
+- Your Steam copy of the Windows game runs through Proton 11 ARM64.
+- The mod adds files next to the game and shows it in the headset through SteamVR.
 
 ## Requirements
 
-- A Steam Frame with SteamOS and SteamVR, logged into Steam.
-- **Tomb Raider: Legend** (Steam app 7000), installed from the Steam store. Start it once from the store entry so its Wine prefix and Setup values exist.
-- **Proton 11 (ARM64)** installed in Steam. The installer sets the game and its shortcut to the tool named `proton_11-arm64`. Check it under Steam > Settings > Compatibility if the name differs.
-- `legendframe-1.0.0-payload.zip` from the [Releases](https://github.com/simplysanatori/LegendFrame/releases) page.
-- A terminal on the Frame: SSH, or Konsole from desktop mode.
+- A Steam Frame with SteamOS and SteamVR
+- Your own **Tomb Raider: Legend** from Steam, started once from its store entry
+- **Proton 11 (ARM64)** installed in Steam
+- A terminal: SSH, or Konsole in desktop mode
 
 ## Install
 
-1. Download `legendframe-1.0.0-payload.zip` and `SHA256SUMS` from the [Releases](https://github.com/simplysanatori/LegendFrame/releases) page, and check the zip:
+1. Download `legendframe-1.0.1-steam-frame-linux-arm64.zip` and `SHA256SUMS` from [Releases](https://github.com/simplysanatori/LegendFrame/releases), then check the zip:
 
    ```sh
    cd ~/Downloads
    sha256sum -c --ignore-missing SHA256SUMS
    ```
 
-2. Get the repository. It has the installer:
+2. Get the installer:
 
    ```sh
    git clone -b steam-frame https://github.com/simplysanatori/LegendFrame.git
    cd LegendFrame
    ```
 
-3. Quit the game if it runs, then install the zip into the Steam copy of the game:
+3. With the game closed, install:
 
    ```sh
-   frame/install.sh --payload ~/Downloads/legendframe-1.0.0-payload.zip
+   frame/install.sh --payload ~/Downloads/legendframe-1.0.1-steam-frame-linux-arm64.zip
    ```
 
-   The installer finds the game, backs up any mod files already there and copies the mod in. It seeds the Frame settings in `trlvr.ini` and the game's graphics registry values. It sets SteamVR's per-app settings (72 Hz, resolution 1440) when SteamVR is running. It queues the **Tomb Raider: Legend VR** shortcut for Steam's next start. Values you already have are kept. It needs no root and can be run again. `frame/install.sh --help` lists the options. `frame/install.sh --check` prints the installed version.
+4. Restart Steam (Power > Exit Steam, then start Steam again).
+5. Launch **Tomb Raider: Legend VR**, not the store entry.
 
-4. Restart Steam yourself (Power > Exit Steam, then start Steam again). The installer never does it. On that start Steam gets the shortcut **Tomb Raider: Legend VR**, set to Proton 11 ARM64, with the store art.
+Using [Frametanium](https://github.com/Cogential/frametanium)? Add `simplysanatori/LegendFrame` there.
 
-5. Put the headset on and launch **Tomb Raider: Legend VR**, not the store entry. The shortcut starts the game as a VR app through `trlvr_launcher.exe`. The store entry starts it flat.
-
-[docs/FRAME-INSTALL.md](docs/FRAME-INSTALL.md) has what each installer step does, and the manual steps if the installer cannot do one.
-
-To update, run the installer again with the new zip. To remove LegendFrame, run `frame/uninstall.sh`. It deletes the mod's files, restores your backups and queues removal of the shortcut for the next Steam start. It leaves the registry values, the SteamVR per-app settings and the Proton mapping for app 7000 alone, and prints how to revert each.
-
-## Install with Frametanium
-
-If you use [Frametanium](https://github.com/Cogential/frametanium), add `simplysanatori/LegendFrame` there. It downloads the release, runs its `install.sh` and updates it when I publish a new version. It uses the `legendframe-<version>-steam-frame-linux-arm64.zip` asset, which holds the mod files and the installer, and it does what `frame/install.sh --payload` does: install the mod into the Steam copy of Tomb Raider: Legend, seed the Frame settings, and queue the shortcut. Install Tomb Raider: Legend from Steam first and run it once from the store entry. If the shortcut is new, restart Steam yourself afterwards; the installer never does.
-
-## Install with FrameDrop
-
-[FrameDrop](https://framedropvr.com) can install this too: [Install with FrameDrop](https://framedropvr.com/install?manifest=https%3A%2F%2Fgithub.com%2Fsimplysanatori%2FLegendFrame%2Freleases%2Flatest%2Fdownload%2Flegendframe.framedrop.json). The release has a `legendframe-<version>-linux-arm64-framedrop.zip` and a `legendframe.framedrop.json` for it. FrameDrop unpacks the zip on the Frame and adds its own library entry, which runs the `run.sh` in the zip. The first time it runs, and again after an update, `run.sh` runs `install.sh` with the Steam shortcut step turned off, so you get FrameDrop's entry and no second one from the installer, and then tells you where to start the game. Install Tomb Raider: Legend from Steam first. The mod runs under Proton, so there is nothing for FrameDrop's entry to start: `run.sh` puts the mod into the Steam copy of the game, without the shortcut step, and tells you to start the game from the "Tomb Raider: Legend VR" entry. Run `install.sh` from the unpacked folder once to get that entry if you do not have it.
+Using [FrameDrop](https://framedropvr.com)? [Install with FrameDrop](https://framedropvr.com/install?manifest=https%3A%2F%2Fgithub.com%2Fsimplysanatori%2FLegendFrame%2Freleases%2Flatest%2Fdownload%2Flegendframe.framedrop.json).
 
 ## First run
 
-On the first run the game shows its **Setup** dialog. You can run it once from the store entry before installing, so the registry section exists. In it:
-
-- Turn **Next Generation Content off**. Its separate renderer draws a black scene in VR, and no registry value controls it, so the installer cannot do this for you.
-- The other options (Depth of Field, Fullscreen Effects, Shadows, Reflections, Water) are set by the installer and the mod. The mod overrides Depth of Field and Fullscreen Effects at every start.
-- The dialog should not come back unless the graphics adapter changes. If it does, the same answers apply.
-
-If the registry section did not exist when you installed, the installer says so: run the game once and run the installer again.
+1. The game shows its **Setup** dialog.
+2. Turn **Next Generation Content** off, or the VR view is black.
+3. Leave the other options as they are.
 
 ## Controls
 
-The Frame controllers have their own layout. The upstream one was made for Oculus Touch: on the Frame, X and Y did the same thing as B, three of the d-pad buttons threw grenades, the right Menu button did nothing and the prompts named buttons the Frame doesn't have. Now every button has its own job:
-
-| Frame control | In play | In menus |
-|---|---|---|
-| Left stick | Move. Double click recentres the view. Hold it in and push it for the radial gear menu | Move |
-| Right stick | Turn. Click switches weapons, double click opens the PDA, long press uses the binoculars (with immersive controls it switches between first and third person) | Scroll |
-| A | Jump / surface | Select |
-| B | Crouch / roll / dive | Back |
-| X | Precision aim on / off. In third person (classic, shoulder or board view) I press X while Lara is on her feet, and X again leaves it. It does nothing while she jumps, hangs or climbs. In the binocular view X puts the binoculars away first. In immersive first person with the guns away it draws the pistols | |
-| Y | Grenade / flare. A long press is the personal light with immersive controls off | |
-| D-pad up | Medipack | Up |
-| D-pad right | Binoculars. Press it again to put them away | Right |
-| D-pad down | Switch weapons | Down |
-| D-pad left | Personal light | Left |
-| Menu (right) | Tap to pause. Hold it 0.6 s for the settings panel | Back |
-| View (left) | PDA | |
-| Left trigger | Action / interact / pull the grapple | |
-| Right trigger | Fire. In immersive first person with the guns away it draws the pistols | Select |
-| Left grip | Throw the grapple | |
-| Right grip | Lock on | |
-| Left bumper | Hold it for the board-mode finger flick | |
-| Right bumper | In immersive first person, hold it (0.3 s) to holster whatever is drawn: the pistols go to the hips, the long gun to the shoulder | |
-| Steam buttons | SteamVR's (dashboard, recentre). Never bound | |
-
-The d-pad is the game's own gear cross, the same four items in the same places, and the item wheel flashes up when I press it. It works in every mode. D-pad down is the game's weapon select in first person as well: it steps to the other gun Lara carries, and when she only has the pistols the game shows its weapon selector. The holsters follow whatever the game did, so a hip or shoulder grip still puts the gun away. In immersive first person d-pad right raises the binoculars through the same hand state as the belt. While the binoculars are up, d-pad right puts them away, d-pad up still uses a medipack, and down and left wait. The left stick's radial gear menu still works as before.
-
-Quick draw: in immersive first person, with the guns holstered and nothing in my hands, a pull of the fire trigger (or a press of X) draws the pistols straight away, the same draw as reaching to the hips. The pull that draws doesn't fire, the next one does, and a hip grip holsters them as usual. To put the guns away I hold the right bumper for a moment: the pistols go back to the hips and the long gun to the shoulder, the same as reaching there, so the trigger draws and the bumper holsters. The Frame's cameras often lose the controllers at the hips and behind the shoulder, which makes the button the dependable way, but the hip and shoulder reaches still holster too. With a gun out, X is precision aim, like the left trigger. `frame_quick_draw = 0` in the `[controls]` section of `trlvr.ini` turns the quick draw off. In third person X's precision aim draws the guns and aims where I look. The game only lets Lara aim precisely on her feet: mid-jump, hanging or climbing the press does nothing, and a hint in the game's own hint box says why, the way its tutorial hints do. From the binocular view X puts the binoculars away and then aims. In first person the guns aim where my hand points, and `controller_aim = 0` makes them follow the headset instead.
-
-The in-game prompts name the Frame's buttons (A, B, X, Y, D-pad Up and so on, Menu, View), in English. Other languages keep upstream's names for now. In immersive first person Y gives way to the chest pouch, as upstream.
-
-Other controllers keep upstream's layout: see [VR CONTROLLER BINDINGS.txt](release/VR%20CONTROLLER%20BINDINGS.txt).
-
-If a button does nothing, or does what it did before this layout, SteamVR is using an older binding it kept for the game. Open SteamVR > Settings > Controllers > Manage Controller Bindings, pick Tomb Raider: Legend and select the supplied LegendFrame binding again.
-
-## Settings
-
-Edit `trlvr.ini` in the game folder with the game closed. The mod writes every key with its explanation the first time it runs. The settings panel (hold the Menu button) changes most of them live. The ones that matter on the Frame, with the values a Frame install starts with:
-
-| Key | Default | What it does |
-|---|---|---|
-| `stereo_mode` | `singlepass` | `singlepass` sends each draw once for both eyes. `twopass` is the original mod's renderer. The settings panel and Shift+F6 switch it live |
-| `submit_wait` | `0` | `1` makes the CPU wait for the GPU before each frame goes to SteamVR, as the original mod did. Slower |
-| `god_carry_fix` | `1` | Keeps carried characters whole in god mode. `0` is the original carry |
-| `vr_runtime` | `openvr` | The installer sets `openvr`. `openxr` leaves the game flat under Proton 11 ARM64 |
-| `hud_offset_x`, `hud_offset_y` | `-0.08`, `0.08` | Moves the whole gameplay HUD. The Whole HUD sliders in the settings panel |
-| `hud_items_x`, `hud_items_y` | `0.20`, `0.20` | Moves the whole item wheel (the d-pad gear cross, every slot), in the same units as `hud_offset`. Sliders in the settings panel, where the HUD stays in view while you move them. `hud_items_hide` (`0`) hides it |
-| `hud_ammo_x`, `hud_ammo_y` | `0.20`, `-0.20` | Moves the weapon and ammo readout, icon and numbers together, the same way. `hud_ammo_hide` (`0`) hides it |
-| `hud_health_x`, `hud_health_y` | `0.20`, `-0.20` | Moves the health bar, with the breath bar above it, the same way. `hud_health_hide` (`0`) hides it. Reset to defaults in the settings panel puts these three and `hud_offset` back to the values in this table |
-| `frame_quick_draw` | `1` | In the `[controls]` section. With the guns holstered in immersive first person, the fire trigger or X draws the pistols straight away. `0` turns that off |
-| `frame_holster_hold` | `0.3` | In the `[controls]` section. How long, in seconds, the right bumper is held to holster the guns in immersive first person. `0` holsters on a tap |
-| `hud_debug` | `0` | `1` logs the HUD's parts and which element each belongs to, if a slider moves the wrong thing |
-| `overlay_vr_width_degrees` | `50` | How wide the settings panel looks in the headset. The original mod used 38, which an install moves to 50. Also a slider in the panel |
-| `overlay_vr_text_scale` | `1.25` | Text and control size in the settings panel. Larger fits less at once. Also a slider in the panel; it applies the next time the panel opens |
-| `overlay_vr_resolution` | `1536` | The settings panel's texture size in pixels. Higher is sharper when you lean in |
-| `stereo_stats` | `0` | `1` logs a `stereo stats:` line every 5 seconds |
-| `fsaa` | `off` | The game's anti-aliasing is expensive |
-| `comfort_vignette` | `off` | `jumps` or `full` darken the edge of view while moving |
-| `cull_fov_degrees` | `110` | Objects outside this angle are not drawn. Lower is cheaper but may pop |
-| `stereo_same_frame` | `1` | Keep at `1`. `0` draws alternate eyes, which doubles moving images |
-
-Outside the ini: the per-app SteamVR refresh rate and resolution (72 Hz, 1440). The mod reads the resolution at start-up, so restart the game after changing it. Shadows, reflections and water are off in the game's registry values.
-
-## Performance
-
-On one Steam Frame at 72 Hz, 1440 pixels per eye, Proton 11 ARM64 and OpenVR, with shadows, reflections and water off:
-
-| | Original mod | LegendFrame |
-|---|---|---|
-| Gameplay frame rate | about 40 fps | 72 fps most of the time, dips into the 50s in the busiest areas |
-| Time per frame | about 25 ms | about 14 ms |
-
-Lowering the resolution never helped the original mod. The time was going into the doubled draws, not the GPU. The rest of each frame is mostly the game's own logic running through the emulator. Let the headset cool between long sessions: a hot Frame throttles and drops the frame rate.
-
-## Files
-
-| What | Where |
+| Control | In play |
 |---|---|
-| Mod files | the game folder, `~/.local/share/Steam/steamapps/common/Tomb Raider Legend/`: `d3d9.dll`, `d3d9_dxvk.dll`, `openvr_api.dll`, `trlvr_launcher.exe`, `trlvr_actions.json`, `bindings_*.json`, `openxr_loader.dll` |
-| Settings | `trlvr.ini` in the game folder |
-| Install record and version | `.legendframe-files.txt` and `.legendframe-version` in the game folder |
-| Backups of replaced files | `<game>/.legendframe-backup-<timestamp>/` |
-| Registry backup | `compatdata/7000/pfx/user.reg.legendframe-bak-<timestamp>` |
-| Generated at run time | `trl_vr.exe` (the large-address-aware copy), logs, crash dumps, all in the game folder |
-| Shortcut helper | `~/.local/share/legendframe/shortcut/` |
-| Steam drop-in that adds the shortcut | `~/.config/systemd/user/steam.service.d/60-legendframe.conf` (removes itself after one Steam start) |
+| Left stick | Move; double click recentres |
+| Right stick | Turn |
+| A / B | Jump / crouch |
+| X / Y | Precision aim / grenade |
+| D-pad | Up medipack, right binoculars, down weapons, left light |
+| Menu (right) | Pause; hold for settings |
+| View (left) | PDA |
+| Left / right trigger | Action / fire |
+| Left / right grip | Grapple / lock on |
 
-The game's own files are never modified, so Steam's "Verify integrity" never needs to repair anything.
+[All controls](docs/USER_GUIDE.md#controls) and [settings](docs/USER_GUIDE.md#settings) are in the user guide.
+
+## Update
+
+Download the new zip, then in `LegendFrame`:
+
+```sh
+frame/install.sh --payload ~/Downloads/legendframe-<version>-steam-frame-linux-arm64.zip
+```
+
+## Uninstall
+
+In `LegendFrame`:
+
+```sh
+frame/uninstall.sh
+```
 
 ## Troubleshooting
 
-- **The game starts flat, not in VR.** Launch the **Tomb Raider: Legend VR** shortcut, not the store entry. Check that `trlvr.ini` has `vr_runtime=openvr`.
-- **A floating 2D window covers the VR view.** That is the game window. The Frame install turns off SteamVR's "Auto show game theater", which is what sends a new game window to the theater screen. If the window still floats, press "Connect to dock" on it once, or turn off "Auto show game theater" under SteamVR Settings > Dashboard (Advanced). With the SteamVR server running, `/opt/steamvr/bin/linuxarm64/vrcmd --set-settings-bool dashboard.autoShowGameTheater false` does the same. The setting also stops flat apps opening on the theater screen by themselves; the same command with `true` brings that back.
-- **The scene is black in VR.** Turn **Next Generation Content off** in the game's Setup dialog.
-- **A controller button does nothing, or still does what it did in an older version.** Select the supplied binding again in SteamVR > Settings > Controllers > Manage Controller Bindings for Tomb Raider: Legend. The left system button always opens the SteamVR dashboard.
-- **The installer says the registry section does not exist.** Run the game once from the store entry, then run the installer again.
-- **Single-pass is not working.** `trlvr.log` has `stereo: single-pass (viewport index) enabled, DXVK stereo interface v1` when it is up. If it says `stereo: DXVK has no single-pass interface` or `EnableSinglePassStereo failed` instead, the game runs two-pass: reinstall so `d3d9.dll` and `d3d9_dxvk.dll` come from the same release.
-- **Frames look torn or incomplete.** Set `submit_wait=1` and tell me what you saw.
-- **Frame rate is lower than expected.** Look at the `perf:` lines in `trlvr.log`: they say whether a slow area is CPU- or GPU-bound. Let the headset cool, and run nothing else on it.
-- **Roll back.** Run `frame/uninstall.sh`. Steam's "Verify integrity" also works, as the game's own files are never changed.
+- **Game starts flat.** Launch **Tomb Raider: Legend VR** instead.
+- **A floating window covers the view.** Press "Connect to dock" on it once.
+- **A button does nothing.** Reselect the LegendFrame binding in SteamVR > Settings > Controllers > Manage Controller Bindings.
+- **Installer says to run the game once.** Run it from the store entry, quit, then install again.
+
+More fixes: [user guide](docs/USER_GUIDE.md#troubleshooting).
 
 ## Reporting a problem
 
-Open an [issue](https://github.com/simplysanatori/LegendFrame/issues) with what you did, what you expected and what happened, and the logs. They are all in the game folder:
+Open an [issue](https://github.com/simplysanatori/LegendFrame/issues): what you did, expected and saw.
 
-- `trlvr.log` (and `trlvr.log.prev`): the headset, hooks, controllers, and a `perf:` line every five seconds with frame rate, GPU and CPU time, draws and throttling. Pull out the `perf:` lines first.
-- `trlvr_launcher.log` and `trl_vr_d3d9.log`: the launcher and the DXVK side.
-- `trlvr_crash.dmp` (and `.prev`) after a crash.
-- SteamVR's `vrserver.txt` and `vrcompositor.txt` under `~/.local/share/Steam/logs/`.
+Attach `trlvr.log` from the game folder ([other logs](docs/USER_GUIDE.md#logs)). Check it for personal details first.
 
-Look through them for anything personal before you share them.
+## More
 
-## Build from source
-
-The mod is cross-built for 32-bit Windows (the game is 32-bit) with mingw in a podman container, on the Frame itself. `toolchain/build.sh <source> <output>` produces `d3d9.dll`, `d3d9_dxvk.dll`, `trlvr_launcher.exe` and `openxr_loader.dll`. With `third_party/openvr/bin/win32/openvr_api.dll`, `input/actions.json` (as `trlvr_actions.json`) and the `input/bindings_*.json` files they make the folder `frame/install.sh --payload` takes. `toolchain/stereotest.sh` checks single-pass against two-pass image for image. Upstream's Windows build (`build.bat`, MSVC) is still in the tree. The design is in [docs/DESIGN.md](docs/DESIGN.md).
+- [User guide](docs/USER_GUIDE.md)
+- [AGENTS.md](AGENTS.md): for developers and AI agents
+- [Building from source](AGENTS.md#build-from-source)
+- [Changelog](docs/CHANGELOG.md)
 
 ## Support
 
-LegendFrame exists because of RototRobot's [Tomb-Raider-Legend-VR-Port](https://github.com/RototRobot/Tomb-Raider-Legend-VR-Port). If you want to support someone, support them first: star and follow it, report what you find there, and send improvements to the mod upstream.
+Support RototRobot's [Tomb-Raider-Legend-VR-Port](https://github.com/RototRobot/Tomb-Raider-Legend-VR-Port) first: star it, report bugs there, send improvements upstream.
 
-If you would like more Steam Frame ports, you can also [buy me a coffee](https://ko-fi.com/sana748653). It pays for the Claude API credits these ports are built with, spent as carefully as I can.
+For more Steam Frame ports, [buy me a coffee](https://ko-fi.com/sana748653). It pays for Claude API credits.
 
 ## Credits
 
-- Built by [simplysanatori](https://github.com/simplysanatori).
-- **RototRobot**, author of [Tomb-Raider-Legend-VR-Port](https://github.com/RototRobot/Tomb-Raider-Legend-VR-Port): the VR mod this is a fork of, including the stereo renderer, tracking, controls, god mode, physics and settings panel. Without their work there would be nothing to port.
-- DXVK, by Philip Rebohle and contributors.
-- Valve's OpenVR.
-- Khronos OpenXR.
-- Dear ImGui.
-- chreden's TRAWindowed.
-- Crystal Dynamics, for the game.
+- [simplysanatori](https://github.com/simplysanatori): built LegendFrame
+- **RototRobot**, [Tomb-Raider-Legend-VR-Port](https://github.com/RototRobot/Tomb-Raider-Legend-VR-Port): the VR mod
+- DXVK, by Philip Rebohle and contributors
+- Valve's OpenVR, Khronos OpenXR, Dear ImGui, chreden's TRAWindowed
+- Crystal Dynamics: the game
 
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the third-party parts and their licences.
+Full list and licences: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Tomb Raider: Legend is the property of its owners. This is an unofficial fan project, not affiliated with or endorsed by Crystal Dynamics, Eidos, Valve or the upstream author.
 
 ## Licence
 
-Apache License 2.0, as upstream: see [LICENSE](LICENSE) and [NOTICE](NOTICE). Third-party code keeps its own licences (DXVK is zlib/libpng and the shipped `d3d9_dxvk.dll` is a modified build).
+Apache License 2.0, as upstream: see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 ## How this was made
 
-I wanted Tomb Raider: Legend in VR on my Frame, so I took RototRobot's mod and worked on making it cheaper to run there. The game is a 32-bit x86 program emulated under Proton, and the limit turned out to be the cost of each draw call, not the GPU. The work was a single-pass stereo renderer that draws both eyes at once, cheaper per-eye maths, a Frame installer and controller binding, and tuning against measurements from the headset.
-
-I made this with partial assistance from Claude. Upstream's README says it was made with heavy AI assistance, so the code underneath is AI assisted too.
-
-Developer notes and what was learned about SteamVR on the Frame are in [docs/FRAME-INSTALL.md](docs/FRAME-INSTALL.md) and [docs/DESIGN.md](docs/DESIGN.md).
+I chose to make RototRobot's mod run well on my Frame, with partial assistance from Claude. I tested and tuned it in the headset. Upstream's README says it was made with heavy AI assistance, so the code underneath is AI assisted too.
