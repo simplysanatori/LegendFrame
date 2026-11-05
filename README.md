@@ -119,7 +119,7 @@ Attach `trlvr.log` from the game folder ([other logs](docs/USER_GUIDE.md#logs)).
 
 Support RototRobot's [Tomb-Raider-Legend-VR-Port](https://github.com/RototRobot/Tomb-Raider-Legend-VR-Port) first: star it, report bugs there, send improvements upstream.
 
-For more Steam Frame ports, [buy me a coffee](https://ko-fi.com/sana748653). It pays for Claude API credits.
+For more Steam Frame ports, [buy me a coffee](https://ko-fi.com/sana748653).
 
 ## Credits
 
@@ -139,4 +139,4 @@ Apache License 2.0, as upstream: see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 ## How this was made
 
-I chose to make RototRobot's mod run well on my Frame, with partial assistance from Claude. I tested and tuned it in the headset. Upstream's README says it was made with heavy AI assistance, so the code underneath is AI assisted too.
+I started this project and used AI (Claude) to speed up development. I write, review and fix code by hand all the way through, keep the AI's work checked and reined in, and aim to keep the port as lightweight as possible. I test it on my own Steam Frame. Upstream's mod was also made with AI assistance, as its README says.

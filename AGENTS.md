@@ -60,5 +60,3 @@ Third-party code keeps its own licences (DXVK is zlib/libpng and the shipped `d3
 ## How this was made (longer)
 
 I wanted Tomb Raider: Legend in VR on my Frame, so I took RototRobot's mod and worked on making it cheaper to run there. The game is a 32-bit x86 program emulated under Proton, and the limit turned out to be the cost of each draw call, not the GPU. The work was a single-pass stereo renderer that draws both eyes at once, cheaper per-eye maths, a Frame installer and controller binding, and tuning against measurements from the headset.
-
-The Ko-fi money pays for the Claude API credits these ports are built with, spent as carefully as I can.
