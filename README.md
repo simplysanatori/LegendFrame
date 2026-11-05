@@ -240,6 +240,6 @@ Apache License 2.0, as upstream: see [LICENSE](LICENSE) and [NOTICE](NOTICE). Th
 
 I wanted Tomb Raider: Legend in VR on my Frame, so I took RototRobot's mod and worked on making it cheaper to run there. The game is a 32-bit x86 program emulated under Proton, and the limit turned out to be the cost of each draw call, not the GPU. The work was a single-pass stereo renderer that draws both eyes at once, cheaper per-eye maths, a Frame installer and controller binding, and tuning against measurements from the headset.
 
-I made this with partial assistance from Claude. Upstream's README says it was made with heavy AI assistance, so the code underneath is AI assisted too. RototRobot has not reviewed this fork. If that is not for you, no worries. Read the code before trusting it.
+I made this with partial assistance from Claude. Upstream's README says it was made with heavy AI assistance, so the code underneath is AI assisted too.
 
 Developer notes and what was learned about SteamVR on the Frame are in [docs/FRAME-INSTALL.md](docs/FRAME-INSTALL.md) and [docs/DESIGN.md](docs/DESIGN.md).
