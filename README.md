@@ -1,6 +1,6 @@
 # LegendFrame
 
-Tomb Raider: Legend in VR, running on the Valve Steam Frame.
+Tomb Raider: Legend in VR on the Valve Steam Frame.
 
 A fork of RototRobot's [Tomb-Raider-Legend-VR-Port](https://github.com/RototRobot/Tomb-Raider-Legend-VR-Port) (TRLVR 1.1.0); all the VR work is theirs.
 
@@ -11,13 +11,10 @@ A fork of RototRobot's [Tomb-Raider-Legend-VR-Port](https://github.com/RototRobo
 - Frame controller layout and button prompts
 - Movable health bar, ammo readout and item wheel
 - Bigger, sharper settings panel
-- Install and uninstall scripts
 
 ## How it works
 
-- The game runs on the Frame itself. No PC needed.
-- Your Steam copy of the Windows game runs through Proton 11 ARM64.
-- The mod adds files next to the game and shows it in the headset through SteamVR.
+The game runs on the Frame itself. The mod adds files to your Steam copy and shows the game in the headset through SteamVR.
 
 ## Requirements
 
@@ -49,24 +46,22 @@ A fork of RototRobot's [Tomb-Raider-Legend-VR-Port](https://github.com/RototRobo
    ```
 
 4. Restart Steam (Power > Exit Steam, then start Steam again).
-5. Launch **Tomb Raider: Legend VR**, not the store entry.
+5. Launch **Tomb Raider: Legend VR**. The store entry starts the game flat.
 
-Using [Frametanium](https://github.com/Cogential/frametanium)? Add `simplysanatori/LegendFrame` there.
+Other installers:
 
-Using [FrameDrop](https://framedropvr.com)? [Install with FrameDrop](https://framedropvr.com/install?manifest=https%3A%2F%2Fgithub.com%2Fsimplysanatori%2FLegendFrame%2Freleases%2Flatest%2Fdownload%2Flegendframe.framedrop.json).
+- [Frametanium](https://github.com/Cogential/frametanium): add `simplysanatori/LegendFrame`.
+- [FrameDrop](https://framedropvr.com): [Install with FrameDrop](https://framedropvr.com/install?manifest=https%3A%2F%2Fgithub.com%2Fsimplysanatori%2FLegendFrame%2Freleases%2Flatest%2Fdownload%2Flegendframe.framedrop.json).
 
 ## First run
 
-1. The game shows its **Setup** dialog.
-2. Turn **Next Generation Content** off, or the VR view is black.
-3. Leave the other options as they are.
+In the game's **Setup** dialog, turn **Next Generation Content** off, or the VR view is black.
 
 ## Controls
 
 | Control | In play |
 |---|---|
 | Left stick | Move; double click recentres |
-| Right stick | Turn |
 | A / B | Jump / crouch |
 | X / Y | Precision aim / grenade |
 | D-pad | Up medipack, right binoculars, down weapons, left light |
@@ -75,13 +70,14 @@ Using [FrameDrop](https://framedropvr.com)? [Install with FrameDrop](https://fra
 | Left / right trigger | Action / fire |
 | Left / right grip | Grapple / lock on |
 
-[All controls](docs/USER_GUIDE.md#controls) and [settings](docs/USER_GUIDE.md#settings) are in the user guide.
+Every [control](docs/USER_GUIDE.md#controls) and [setting](docs/USER_GUIDE.md#settings) is in the user guide.
 
 ## Update
 
 Download the new zip, then in `LegendFrame`:
 
 ```sh
+git pull
 frame/install.sh --payload ~/Downloads/legendframe-<version>-steam-frame-linux-arm64.zip
 ```
 
@@ -95,18 +91,14 @@ frame/uninstall.sh
 
 ## Troubleshooting
 
-- **Game starts flat.** Launch **Tomb Raider: Legend VR** instead.
 - **A floating window covers the view.** Press "Connect to dock" on it once.
 - **A button does nothing.** Reselect the LegendFrame binding in SteamVR > Settings > Controllers > Manage Controller Bindings.
-- **Installer says to run the game once.** Run it from the store entry, quit, then install again.
 
-More fixes: [user guide](docs/USER_GUIDE.md#troubleshooting).
+[More fixes](docs/USER_GUIDE.md#troubleshooting)
 
 ## Reporting a problem
 
-Open an [issue](https://github.com/simplysanatori/LegendFrame/issues): what you did, expected and saw.
-
-Attach `trlvr.log` from the game folder ([other logs](docs/USER_GUIDE.md#logs)). Check it for personal details first.
+Open an [issue](https://github.com/simplysanatori/LegendFrame/issues): what you did, expected and saw. Attach `trlvr.log` from the game folder ([other logs](docs/USER_GUIDE.md#logs)). Check it for personal details first.
 
 ## More
 
@@ -117,7 +109,7 @@ Attach `trlvr.log` from the game folder ([other logs](docs/USER_GUIDE.md#logs)).
 
 ## Support
 
-Support RototRobot's [Tomb-Raider-Legend-VR-Port](https://github.com/RototRobot/Tomb-Raider-Legend-VR-Port) first: star it, report bugs there, send improvements upstream.
+Star RototRobot's [Tomb-Raider-Legend-VR-Port](https://github.com/RototRobot/Tomb-Raider-Legend-VR-Port) and send improvements upstream.
 
 For more Steam Frame ports, [buy me a coffee](https://ko-fi.com/sana748653).
 
@@ -135,7 +127,7 @@ Tomb Raider: Legend is the property of its owners. This is an unofficial fan pro
 
 ## Licence
 
-Apache License 2.0, as upstream: see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache License 2.0, as upstream ([LICENSE](LICENSE), [NOTICE](NOTICE)).
 
 ## How this was made
 

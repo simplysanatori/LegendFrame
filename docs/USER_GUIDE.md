@@ -39,7 +39,7 @@ If you use [Frametanium](https://github.com/Cogential/frametanium), add `simplys
 
 ## Update and uninstall
 
-To update, run the installer again with the new zip. To remove LegendFrame, run `frame/uninstall.sh`. It deletes the mod's files, restores your backups and queues removal of the shortcut for the next Steam start. It leaves the registry values, the SteamVR per-app settings and the Proton mapping for app 7000 alone, and prints how to revert each.
+To update, run `git pull` in `LegendFrame`, then run the installer again with the new zip. To remove LegendFrame, run `frame/uninstall.sh`. It deletes the mod's files, restores your backups and queues removal of the shortcut for the next Steam start. It leaves the registry values, the SteamVR per-app settings and the Proton mapping for app 7000 alone, and prints how to revert each.
 
 ## First run
 
